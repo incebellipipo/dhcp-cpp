@@ -12,6 +12,7 @@
 #include <vector>
 
 #define verbose true
+// #define DEBUG
 
 class DHCPClient {
 private:

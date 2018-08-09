@@ -13,12 +13,14 @@
 
 
 void print_packet(const u_int8_t *data, int len) {
+#ifdef DEBUG
   for (int i = 0; i < len; i++) {
     if (i % 0x10 == 0) {
       printf("\n %04x :: ", i);
     }
     printf("%02x ", data[i]);
   }
+#endif
 }
 
 /* sends a DHCP packet */
@@ -29,7 +31,7 @@ int send_dhcp_packet(void *buffer, int buffer_size, int sock, struct sockaddr_in
 	result = (int) sendto(sock,(char *)buffer, (size_t)buffer_size,0, (struct sockaddr *)destination,sizeof(*destination));
 
 	if (verbose) {
-    printf("send_dhcp_packet result: %d\n", result);
+    printf("[verbose] send_dhcp_packet result: %d\n", result);
   }
 
 	if(result<0) {
@@ -58,9 +60,9 @@ int receive_dhcp_packet(void *buffer, int buffer_size, int sock, int timeout, st
   /* make sure some data has arrived */
   if(!FD_ISSET(sock,&readfds)){
     if (verbose) {
-      printf("No (more) data received\n");
+      printf("[verbose] No (more) data received\n");
     }
-    return EXIT_FAILURE;
+    return -1;
   }
 
   else{
@@ -73,18 +75,18 @@ int receive_dhcp_packet(void *buffer, int buffer_size, int sock, int timeout, st
     recv_result=(int)recvfrom(sock,(char *)buffer,(size_t)buffer_size,MSG_PEEK,(struct sockaddr *)&source_address,&address_size);
 
     if (verbose) {
-      printf("recv_result_1: %d\n", recv_result);
+      printf("[verbose] recv_result_1: %d\n", recv_result);
     }
 
     recv_result=(int)recvfrom(sock,(char *)buffer,(size_t)buffer_size,0,(struct sockaddr *)&source_address,&address_size);
 
     if (verbose) {
-      printf("recv_result_2: %d\n", recv_result);
+      printf("[verbose] recv_result_2: %d\n", recv_result);
     }
 
     if(recv_result==-1){
       if (verbose) {
-				perror("recvfrom() failed, ");
+				perror("[verbose] recvfrom() failed, ");
 			}
       return errno;
     }

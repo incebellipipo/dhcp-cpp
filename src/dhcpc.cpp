@@ -10,8 +10,10 @@
 
 #include <unistd.h>
 #include <sys/socket.h>
+#include <sys/types.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+
 
 #include <dhcp.h>
 #include <dhcp-packet.h>
@@ -26,8 +28,6 @@ struct dhcp_packet DHCPClient::dhcp_packet_with_headers_set() {
   // clear the packet data structure
   bzero(&packet, sizeof(packet));
 
-  packet.magic_cookie = htonl(DHCP_MAGIC_COOKIE);
-
   // hardware address type
   packet.htype = HTYPE_ETHER;
 
@@ -41,12 +41,10 @@ struct dhcp_packet DHCPClient::dhcp_packet_with_headers_set() {
 
   packet.xid = htonl(packet_xid_);
 
-  // TODO: this is dirty fix: If below call is not made only one server response is processed
-  ntohl(packet.xid);
-
   packet.secs = htons(USHRT_MAX);
 
   packet.flags = htons(BOOTP_BROADCAST);
+
 
   memcpy(packet.chaddr, client_hardware_address_.c_str(), IFHWADDRLEN);
 
@@ -59,10 +57,14 @@ int DHCPClient::send_dhcp_discover(int sock){
   struct sockaddr_in sockaddr_broadcast;
 
   int offset = 0;
+  discover_packet.options[offset++] = 0x63;
+  discover_packet.options[offset++] = 0x82;
+  discover_packet.options[offset++] = 0x53;
+  discover_packet.options[offset++] = 0x63;
+
   u_int8_t option;
 
   discover_packet.op = BOOTREQUEST;
-
   offset += add_dhcp_option(&discover_packet,
                             DHO_DHCP_MESSAGE_TYPE,
                             &(option = DHCPDISCOVER),
@@ -121,16 +123,10 @@ int DHCPClient::send_dhcp_discover(int sock){
 
   print_packet((u_int8_t*)&discover_packet, sizeof(discover_packet));
 
-  printf("\n\n");
-
-
   /* send the DHCPDISCOVER packet out */
   send_dhcp_packet(&discover_packet,sizeof(discover_packet),sock,&sockaddr_broadcast);
-
   return EXIT_SUCCESS;
 }
-
-
 
 
 /* waits for a DHCPOFFER message from one or more DHCP servers */
@@ -177,7 +173,6 @@ std::vector<dhcp_packet> DHCPClient::get_dhcp_offer(int sock){
     add_dhcp_offer(source.sin_addr,&offer_packet);
     dhcp_packets.push_back(offer_packet);
     valid_responses_++;
-    break;
   }
 
   return dhcp_packets;
@@ -192,6 +187,11 @@ int DHCPClient::send_dhcp_request(int sock, struct in_addr server, struct in_add
 
   int offset = 0;
   u_int8_t option;
+
+  request_packet.options[offset++] = 0x63;
+  request_packet.options[offset++] = 0x82;
+  request_packet.options[offset++] = 0x53;
+  request_packet.options[offset++] = 0x63;
 
   request_packet.op = BOOTREQUEST;
 
@@ -254,72 +254,72 @@ int DHCPClient::get_dhcp_acknowledgement(int socket, struct in_addr server) {
   selected_server.sin_addr = server;
   receive_dhcp_packet(&packet, sizeof(packet), socket, DHCP_OFFER_TIMEOUT, &selected_server);
 
-  print_packet((u_int8_t*)&packet, DHCP_MIN_OPTION_LEN);
-  for(int x = 4 ; x < DHCP_MAX_OPTION_LEN ; ) {
+  print_packet((u_int8_t *)&packet, DHCP_MIN_OPTION_LEN);
 
+  if(packet.options[0] != 0x63){
+    return -1;
+  } else if (packet.options[1] != 0x82){
+    return -1;
+  } else if (packet.options[2] != 0x53){
+    return -1;
+  } else if (packet.options[3] != 0x63){
+    return -1;
+  }
+
+  for(int x = 4 ; x < DHCP_MAX_OPTION_LEN ; ) {
 
     if((int) packet.options[x] == -1 || (int)packet.options[x]==0){
       break;
     }
     unsigned int option_type;
     unsigned int option_length;
-
     option_type = packet.options[x++];
     option_length = packet.options[x++];
 
     if( verbose ){
-      printf("Option: %d (0x%02X)\n", option_type, option_length);
+      printf("Option: %3d (0x%02X): ", option_type, option_length);
     }
 
     if(option_type == DHO_DHCP_MESSAGE_TYPE){
-      u_int16_t message_type;
+      u_int8_t message_type;
       memcpy(&message_type, &packet.options[x],option_length);
-      message_type = ntohs(message_type);
+      // message_type = ntohs(message_type);
       if(message_type == 0x05 ){
-        printf("Acknowledged\n");
+        printf("Acknowledged");
       } else if (message_type == 0x06) {
-        printf("Nack received\n");
+        printf("Nack received");
       } else {
-        printf("Message type is not identified: %u", message_type);
+        printf("Message type is not identified: %02x\n", message_type);
       }
-      x += option_length;
     } else if (option_type == DHO_DHCP_SERVER_IDENTIFIER) {
       struct in_addr server;
       memcpy(&server, &packet.options[x], option_length);
-      printf("Server: %s\n", inet_ntoa(server));
-      x += option_length;
+      printf("Server: %s", inet_ntoa(server));
     } else if (option_type == DHO_SUBNET_MASK) {
       struct in_addr subnet_mask;
       memcpy(&subnet_mask, &packet.options[x], option_length);
-      printf("Subnet Mask: %s\n", inet_ntoa(subnet_mask));
-      x += option_length;
+      printf("Subnet Mask: %s", inet_ntoa(subnet_mask));
     } else if (option_type == DHO_DOMAIN_NAME_SERVERS) {
-      int dns_size;
-      memcpy(&dns_size, &packet.options[x++], 1);
+
       struct in_addr dns;
-      for(int i = 0; i < option_length / dns_size; i += dns_size , x+= dns_size){
-        memcpy(&dns, &packet.options[x], sizeof(struct in_addr));
-        printf("dns: %s\n", inet_ntoa(dns));
+      for(int i = 0; i < option_length / sizeof(dns); i ++){
+        memcpy(&dns, &packet.options[x + i * sizeof(dns)], sizeof(struct in_addr));
+        printf("Dns: %s", inet_ntoa(dns));
       }
-      x += option_length;
     } else if ( option_type == DHO_DHCP_LEASE_TIME) {
       u_int32_t lease_time;
       memcpy(&lease_time, &packet.options[x], option_length);
       lease_time = ntohl(lease_time);
       printf("Lease time: %u", lease_time);
-      x += option_length;
     } else if (option_type == DHO_ROUTERS){
       struct in_addr router;
       memcpy(&router, &packet.options[x], option_length);
       printf("Router: %s", inet_ntoa(router));
-      x += option_length;
+    } else if ( option_type == DHO_END) {
+      break;
     }
-
-    else {
-      for( int y = 0 ; y < option_length ; y++ , x++);
-    }
-
-
+    printf("\n");
+    x += option_length;
   }
 
 
@@ -336,6 +336,15 @@ int DHCPClient::add_dhcp_offer(struct in_addr source, dhcp_packet* offer_packet)
 
   if(offer_packet==nullptr)
     return EXIT_FAILURE;
+  if(offer_packet->options[0] != 0x63){
+    return -1;
+  } else if (offer_packet->options[1] != 0x82){
+    return -1;
+  } else if (offer_packet->options[2] != 0x53){
+    return -1;
+  } else if (offer_packet->options[3] != 0x63){
+    return -1;
+  }
 
   /* process all DHCP options present in the packet */
   for( x = 4 ; x <  DHCP_MAX_OPTION_LEN; ){
@@ -344,35 +353,40 @@ int DHCPClient::add_dhcp_offer(struct in_addr source, dhcp_packet* offer_packet)
     if((int)offer_packet->options[x]==-1 || (int)offer_packet->options[x]==0) {
       break;
     }
-
     /* get option type */
     option_type=(unsigned int)offer_packet->options[x++];
-
     /* get option length */
     option_length=(unsigned int)offer_packet->options[x++];
 
     if (verbose) {
-      printf("Option: %d (0x%02X)\n", option_type, option_length);
+      printf("Option: %3d (0x%02X): ", option_type, option_length);
     }
     /* get option data */
-    if(option_type==DHO_DHCP_LEASE_TIME) {
+    if (option_type == DHO_DHCP_LEASE_TIME) {
       memcpy(&dhcp_lease_time_, &offer_packet->options[x],
              sizeof(dhcp_lease_time_));
       dhcp_lease_time_ = ntohl(dhcp_lease_time_);
-    } else if(option_type==DHO_DHCP_RENEWAL_TIME) {
+    } else if (option_type==DHO_DHCP_RENEWAL_TIME) {
       memcpy(&dhcp_renewal_time_, &offer_packet->options[x],
              sizeof(dhcp_renewal_time_));
       dhcp_renewal_time_ = ntohl(dhcp_renewal_time_);
-    } else if(option_type==DHO_DHCP_REBINDING_TIME) {
+    } else if (option_type == DHO_DHCP_REBINDING_TIME) {
       memcpy(&dhcp_rebinding_time_, &offer_packet->options[x],
              sizeof(dhcp_rebinding_time_));
       dhcp_rebinding_time_ = ntohl(dhcp_rebinding_time_);
-    }
+    } else if (option_type == DHO_SUBNET_MASK){
 
-      /* skip option data we're ignoring */
-    else {
-      for (y = 0; y < option_length; y++, x++);
+    } else if (option_type == DHO_ROUTERS){
+
+    } else if (option_type == DHO_DHCP_SERVER_IDENTIFIER){
+
+    } else if (option_type == DHO_DHCP_MESSAGE_TYPE){
+
+    } else if (option_type == DHO_END) {
+      break;
     }
+    printf("\n");
+    x += option_length;
   }
 
   new_offer=(dhcp_offer *)malloc(sizeof(dhcp_offer));

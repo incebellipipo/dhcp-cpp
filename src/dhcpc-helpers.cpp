@@ -35,11 +35,7 @@ int create_dhcp_socket(std::string interface_name){
 		exit(errno);
 	}
 
-	if (verbose) {
-    printf("DHCP socket: %d\n", sock);
-  }
-
-    /* set the reuse address flag so we don't get errors when restarting */
+	/* set the reuse address flag so we don't get errors when restarting */
   flag = 1;
   if( setsockopt(sock,SOL_SOCKET,SO_REUSEADDR,(char *)&flag,sizeof(flag)) < 0 ){
     perror("Error: Could not set reuse address option on DHCP socket!\n");

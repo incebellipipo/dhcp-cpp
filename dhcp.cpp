@@ -47,17 +47,18 @@ int main(int argc, char **argv){
   dhcpClient.set_packet_xid((u_int32_t) random());
   dhcpClient.set_client_hardware_address(client_hardware_address);
 
+  std::cout << "\n======== DISCOVER ===============================" << std::endl;
   dhcpClient.send_dhcp_discover(dhcp_socket);
 
+  std::cout << "\n\n======== OFFER    ===============================" << std::endl;
   auto packets = dhcpClient.get_dhcp_offer(dhcp_socket);
 
 
   for(auto i : dhcpClient.getDhcpOffers()){
-
-    std::cout << "Request sent" << std::endl;
+    std::cout << "\n\n======== REQUEST  ===============================" << std::endl;
     dhcpClient.send_dhcp_request(dhcp_socket, i.server_address, i.offered_address);
 
-    std::cout << "Acknowledgement" << std::endl;
+    std::cout << "\n\n======== ACKNOWLEDGEMENT ========================" << std::endl;
     dhcpClient.get_dhcp_acknowledgement(dhcp_socket, i.server_address);
     break;
   }
