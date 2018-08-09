@@ -47,6 +47,8 @@ private:
 
 public:
 
+  auto getDhcpOffers() -> decltype(dhcp_offers_) { return dhcp_offers_; }
+
   void setRequestSpecificAddress(decltype(request_specific_address_) val) {request_specific_address_ = val;}
   auto getRequestSpecificAddress() -> decltype(request_specific_address_) { return request_specific_address_; }
 
@@ -58,9 +60,9 @@ public:
 
   std::vector<dhcp_packet> get_dhcp_offer(int fd);
 
-  int send_dhcp_request(int fd, dhcp_packet discover_packet, struct in_addr server);
+  int send_dhcp_request(int fd, struct in_addr server, struct in_addr requested);
 
-  int get_dhcp_acknowledgement(int);
+  int get_dhcp_acknowledgement(int, struct in_addr server);
 
   int get_results();
 

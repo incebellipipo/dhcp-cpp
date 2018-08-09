@@ -70,7 +70,7 @@ struct dhcp_packet {
   char sname [DHCP_SNAME_LEN];	/* 40: Server name */
   char file [DHCP_FILE_LEN];	/* 104: Boot filename */
   u_int32_t magic_cookie = DHCP_MAGIC_COOKIE;
-  unsigned char options [DHCP_MAX_OPTION_LEN];
+	unsigned char options[DHCP_MIN_OPTION_LEN];
   /* 212: Optional parameters
      (actual length dependent on MTU). */
 };

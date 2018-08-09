@@ -9,6 +9,7 @@
 #include <cerrno>
 #include <arpa/inet.h>
 #include <dhcpc.h>
+#include <iostream>
 
 
 void print_packet(const u_int8_t *data, int len) {
@@ -17,7 +18,6 @@ void print_packet(const u_int8_t *data, int len) {
       printf("\n %04x :: ", i);
     }
     printf("%02x ", data[i]);
-
   }
 }
 
@@ -89,10 +89,6 @@ int receive_dhcp_packet(void *buffer, int buffer_size, int sock, int timeout, st
       return errno;
     }
 		else{
-			if (verbose) {
-				printf("receive_dhcp_packet() result: %d\n",recv_result);
-				printf("receive_dhcp_packet() source: %s\n",inet_ntoa(source_address.sin_addr));
-			}
 			memcpy(address,&source_address,sizeof(source_address));
 			return EXIT_SUCCESS;
 		}
@@ -100,8 +96,10 @@ int receive_dhcp_packet(void *buffer, int buffer_size, int sock, int timeout, st
 }
 
 int add_dhcp_option(struct dhcp_packet* packet, u_int8_t code, u_int8_t* data, int offset, u_int8_t len) {
+
   packet->options[offset] = code;
   packet->options[offset + 1] = len;
+
   memcpy(&packet->options[offset + 2], data, len);
   return len + (sizeof(u_int8_t) * 2);
 }

@@ -7,6 +7,7 @@ project(dhcpclient)
 include_directories(include)
 
 add_library(lib${PROJECT_NAME}-dev
+        include/dhcp.h
         include/dhcpc.h             src/dhcpc.cpp
         include/dhcpc-helpers.h     src/dhcpc-helpers.cpp
         include/dhcp-packet.h       src/dhcp-packet.cpp

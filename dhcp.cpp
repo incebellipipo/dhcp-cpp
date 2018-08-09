@@ -36,7 +36,7 @@ int main(int argc, char **argv){
 
   DHCPClient dhcpClient;
 
-  std::string interface_name("wlp8s0");
+  std::string interface_name("enp0s31f6");
 
   /* create socket for DHCP communications */
   dhcp_socket=create_dhcp_socket(interface_name);
@@ -51,15 +51,16 @@ int main(int argc, char **argv){
 
   auto packets = dhcpClient.get_dhcp_offer(dhcp_socket);
 
-  std::cout << "OUR PART" << std::endl;
 
-//  for(auto packet : packets) {
-//    dhcpClient.send_dhcp_request(dhcp_socket, packet, in_addr());
-//  }
-//
-//  std::cout << "OUR PART #2" << std::endl;
-//
-//  dhcpClient.get_dhcp_acknowledgement(dhcp_socket);
+  for(auto i : dhcpClient.getDhcpOffers()){
+
+    std::cout << "Request sent" << std::endl;
+    dhcpClient.send_dhcp_request(dhcp_socket, i.server_address, i.offered_address);
+
+    std::cout << "Acknowledgement" << std::endl;
+    dhcpClient.get_dhcp_acknowledgement(dhcp_socket, i.server_address);
+    break;
+  }
 
   close_dhcp_socket(dhcp_socket);
 

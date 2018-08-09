@@ -80,6 +80,16 @@ int DHCPClient::send_dhcp_discover(int sock){
                               );
   }
 
+  char hostname[1024];
+  hostname[1023] = 0x00;
+  gethostname(hostname, 1023);
+  offset += add_dhcp_option(&discover_packet,
+                            DHO_HOST_NAME,
+                            (u_int8_t*)&hostname,
+                            offset,
+                            (size_t) strlen(hostname)
+                            );
+
   u_int8_t parameter_requst_list[] = {DHO_SUBNET_MASK,
                                       DHO_BROADCAST_ADDRESS,
                                       DHO_TIME_OFFSET,
@@ -91,16 +101,6 @@ int DHCPClient::send_dhcp_discover(int sock){
                                       DHO_INTERFACE_MTU,
                                       DHO_STATIC_ROUTES,
                                       DHO_NTP_SERVERS };
-
-  char hostname[1024];
-  hostname[1023] = 0x00;
-  gethostname(hostname, 1023);
-  offset += add_dhcp_option(&discover_packet,
-                            DHO_HOST_NAME,
-                            (u_int8_t*)&hostname,
-                            offset,
-                            (size_t) strlen(hostname)
-                            );
 
   offset += add_dhcp_option(&discover_packet,
                             DHO_DHCP_PARAMETER_REQUEST_LIST,
@@ -177,17 +177,58 @@ std::vector<dhcp_packet> DHCPClient::get_dhcp_offer(int sock){
     add_dhcp_offer(source.sin_addr,&offer_packet);
     dhcp_packets.push_back(offer_packet);
     valid_responses_++;
+    break;
   }
 
   return dhcp_packets;
 }
 
 
-int DHCPClient::send_dhcp_request(int sock, dhcp_packet discover_packet, struct in_addr server) {
+int DHCPClient::send_dhcp_request(int sock, struct in_addr server, struct in_addr requested) {
   auto request_packet = dhcp_packet_with_headers_set();
   struct sockaddr_in sockaddr_broadcast;
 
-  request_packet.siaddr = discover_packet.siaddr;
+  request_packet.siaddr = server;
+
+  int offset = 0;
+  u_int8_t option;
+
+  request_packet.op = BOOTREQUEST;
+
+  offset += add_dhcp_option(&request_packet,
+                            DHO_DHCP_MESSAGE_TYPE,
+                            &(option = DHCPREQUEST),
+                            offset,
+                            sizeof(option)
+  );
+
+  /* the IP address we're requesting */
+  offset += add_dhcp_option(&request_packet,
+                            DHO_DHCP_REQUESTED_ADDRESS,
+                            (u_int8_t*)&requested,
+                            offset,
+                            sizeof(requested)
+  );
+
+  /* the IP address of the server */
+  offset += add_dhcp_option(&request_packet,
+                            DHO_DHCP_SERVER_IDENTIFIER,
+                            (u_int8_t*)&server,
+                            offset,
+                            sizeof(requested)
+  );
+
+  char hostname[1024];
+  hostname[1023] = 0x00;
+  gethostname(hostname, 1023);
+  offset += add_dhcp_option(&request_packet,
+                            DHO_HOST_NAME,
+                            (u_int8_t*)&hostname,
+                            offset,
+                            (size_t) strlen(hostname)
+  );
+
+  end_dhcp_option(&request_packet, offset);
 
 
   /* send the DHCPREQUEST packet to broadcast address */
@@ -201,22 +242,21 @@ int DHCPClient::send_dhcp_request(int sock, dhcp_packet discover_packet, struct 
 
   selected_server_ = request_packet.siaddr;
 
-  if(verbose) {
-    printf("\n\n");
-  }
 
   return 0;
 }
 
-int DHCPClient::get_dhcp_acknowledgement(int socket){
+int DHCPClient::get_dhcp_acknowledgement(int socket, struct in_addr server) {
 
   dhcp_packet packet;
 
   struct sockaddr_in selected_server;
-  selected_server.sin_addr = selected_server_;
+  selected_server.sin_addr = server;
   receive_dhcp_packet(&packet, sizeof(packet), socket, DHCP_OFFER_TIMEOUT, &selected_server);
 
+  print_packet((u_int8_t*)&packet, DHCP_MIN_OPTION_LEN);
   for(int x = 4 ; x < DHCP_MAX_OPTION_LEN ; ) {
+
 
     if((int) packet.options[x] == -1 || (int)packet.options[x]==0){
       break;
@@ -232,30 +272,47 @@ int DHCPClient::get_dhcp_acknowledgement(int socket){
     }
 
     if(option_type == DHO_DHCP_MESSAGE_TYPE){
-      int message_type;
+      u_int16_t message_type;
       memcpy(&message_type, &packet.options[x],option_length);
-      //message_type = ntohl(message_type);
+      message_type = ntohs(message_type);
+      if(message_type == 0x05 ){
+        printf("Acknowledged\n");
+      } else if (message_type == 0x06) {
+        printf("Nack received\n");
+      } else {
+        printf("Message type is not identified: %u", message_type);
+      }
+      x += option_length;
+    } else if (option_type == DHO_DHCP_SERVER_IDENTIFIER) {
+      struct in_addr server;
+      memcpy(&server, &packet.options[x], option_length);
+      printf("Server: %s\n", inet_ntoa(server));
+      x += option_length;
     } else if (option_type == DHO_SUBNET_MASK) {
       struct in_addr subnet_mask;
       memcpy(&subnet_mask, &packet.options[x], option_length);
+      printf("Subnet Mask: %s\n", inet_ntoa(subnet_mask));
+      x += option_length;
     } else if (option_type == DHO_DOMAIN_NAME_SERVERS) {
       int dns_size;
       memcpy(&dns_size, &packet.options[x++], 1);
       struct in_addr dns;
       for(int i = 0; i < option_length / dns_size; i += dns_size , x+= dns_size){
-        memcpy(&dns, &packet.options[x], dns_size);
+        memcpy(&dns, &packet.options[x], sizeof(struct in_addr));
         printf("dns: %s\n", inet_ntoa(dns));
       }
-      printf("size of inet %lu\n" , sizeof(struct in_addr));
-    } else if (option_type == DHO_ROUTERS ){
-      printf("router\n");
-      x+= option_length;
-    } else if ( option_type == DHO_DHCP_LEASE_TIME){
-      printf("lease time\n");
       x += option_length;
-    } else if ( option_type == DHO_DHCP_SERVER_IDENTIFIER) {
+    } else if ( option_type == DHO_DHCP_LEASE_TIME) {
+      u_int32_t lease_time;
+      memcpy(&lease_time, &packet.options[x], option_length);
+      lease_time = ntohl(lease_time);
+      printf("Lease time: %u", lease_time);
       x += option_length;
-      printf("dhcp server");
+    } else if (option_type == DHO_ROUTERS){
+      struct in_addr router;
+      memcpy(&router, &packet.options[x], option_length);
+      printf("Router: %s", inet_ntoa(router));
+      x += option_length;
     }
 
     else {
