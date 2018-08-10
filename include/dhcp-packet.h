@@ -7,8 +7,8 @@
 
 #include <cstdio>
 #include <dhcp.h>
-
-
+#include <vector>
+#include <dhcp-client.h>
 
 /**
  * @brief Prints packet just for debugging
@@ -55,5 +55,12 @@ int add_dhcp_option(struct dhcp_packet* packet, u_int8_t code, u_int8_t* data, i
  * @param offset
  */
 void end_dhcp_option(struct dhcp_packet* packet, int offset);
+
+/**
+ * @brief Parses the packet and put it in the vector
+ * @param packet pointer
+ * @return objects
+ */
+std::vector<dhcp_option> parse_dhcp_packet(struct dhcp_packet *packet);
 
 #endif //DHCPCLIENT_DHCP_REQUEST_H

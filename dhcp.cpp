@@ -25,8 +25,7 @@
 
 
 #include <dhcp-packet.h>
-#include <dhcpc-helpers.h>
-#include <dhcpc.h>
+#include <dhcp-client.h>
 #include <iostream>
 
 
@@ -44,6 +43,7 @@ int main(int argc, char **argv){
   std::string client_hardware_address;
   get_hardware_address(interface_name, &client_hardware_address);
 
+  std::srand((u_int32_t)std::time(nullptr));
   dhcpClient.set_packet_xid((u_int32_t) random());
   dhcpClient.set_client_hardware_address(client_hardware_address);
 
@@ -55,11 +55,17 @@ int main(int argc, char **argv){
 
 
   for(auto i : dhcpClient.getDhcpOffers()){
+
     std::cout << "\n\n======== REQUEST  ===============================" << std::endl;
     dhcpClient.send_dhcp_request(dhcp_socket, i.server_address, i.offered_address);
 
     std::cout << "\n\n======== ACKNOWLEDGEMENT ========================" << std::endl;
     dhcpClient.get_dhcp_acknowledgement(dhcp_socket, i.server_address);
+
+    std::string(inet_ntoa(i.offered_address));
+    std::cout << "\n\nGot ip: " << std::string(inet_ntoa(i.offered_address))
+              << " from server: " <<  std::string(inet_ntoa(i.server_address))
+              << std::endl;
     break;
   }
 

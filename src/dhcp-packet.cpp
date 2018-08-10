@@ -8,8 +8,9 @@
 #include <sys/types.h>
 #include <cerrno>
 #include <arpa/inet.h>
-#include <dhcpc.h>
+#include <dhcp-client.h>
 #include <iostream>
+#include <map>
 
 
 void print_packet(const u_int8_t *data, int len) {
@@ -109,4 +110,62 @@ int add_dhcp_option(struct dhcp_packet* packet, u_int8_t code, u_int8_t* data, i
 void end_dhcp_option(struct dhcp_packet* packet, int offset){
   u_int8_t option = DHO_PAD;
   add_dhcp_option(packet, DHO_END, &option, offset, sizeof(option));
+}
+
+std::vector<dhcp_option> parse_dhcp_packet(struct dhcp_packet *packet){
+
+  std::vector<dhcp_option> options;
+
+  if(packet==nullptr)
+    return options;
+  if(packet->options[0] != 0x63){
+    return options;
+  } else if (packet->options[1] != 0x82){
+    return options;
+  } else if (packet->options[2] != 0x53){
+    return options;
+  } else if (packet->options[3] != 0x63){
+    return options;
+  }
+
+  /* process all DHCP options present in the packet */
+  for(int s, x = 4 ; x <  DHCP_MAX_OPTION_LEN; x += s){
+
+    /* end of options (0 is really just a pad, but bail out anyway) */
+    if((int)packet->options[x]==-1 || (int)packet->options[x]==0) {
+      break;
+    }
+
+    dhcp_option option = {};
+
+    /* get option type */
+    option.type = (u_int8_t)packet->options[x++];
+
+    /* get option length */
+    option.length = (u_int8_t)packet->options[x++];
+
+    s = option.length;
+
+    /* get option data */
+    option.data = (u_int8_t*)malloc(option.length * sizeof(u_int8_t));
+
+    /* Copy data to option struct */
+    memcpy(option.data, (void*)&packet->options[x], option.length);
+
+    /* Push it in the vector */
+    options.push_back(option);
+
+    if(option.type == DHO_END){
+      break;
+    }
+  }
+
+  for(auto option : options){
+    printf("Option, Type: %3u, Lenght: %02X, Data: ", option.type, option.length);
+    for(int i = 0; i < option.length; i ++){
+      printf("%02X ", option.data[i]);
+    }
+    printf("\n");
+  }
+
 }
