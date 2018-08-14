@@ -79,7 +79,8 @@ struct dhcp_packet {
 #define BOOTREPLY	2
 
 /* Possible values for flags field... */
-#define BOOTP_BROADCAST 32768L
+#define BOOTP_UNICAST 0x0000
+#define BOOTP_BROADCAST 0x8000
 
 /* Possible values for hardware type (htype) field... */
 #define HTYPE_ETHER	1               /* Ethernet 10Mbps              */

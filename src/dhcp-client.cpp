@@ -21,9 +21,63 @@
 
 #include <net/if.h>
 #include <sys/ioctl.h>
+#include <linux/if_ether.h>
+#include <netinet/ip.h>
+#include <netinet/udp.h>
+
+DHCPClient::DHCPClient(char *interface_name) {
+  strncpy(ifname_, interface_name, IFNAMSIZ);
+  struct ifreq ifr = {};
+  memset(&ifr, 0, sizeof(ifreq));
+  strncpy(ifr.ifr_name, ifname_, IFNAMSIZ );
+  int ifreq_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+  if(ioctl(ifreq_sock, SIOCGIFHWADDR, &ifr) < 0){
+    perror("Can not gather hwaddr");
+    exit(EXIT_FAILURE);
+  }
+  close(ifreq_sock);
+
+  memcpy((void*)&hwaddr_, &ifr.ifr_hwaddr.sa_data, IFHWADDRLEN);
+
+  std::srand((u_int32_t)std::time(nullptr));
+  packet_xid_ = (u_int32_t) random();
+}
+
+void DHCPClient::initialize() {
+
+  listen_raw_sock_fd_ = socket(PF_PACKET, SOCK_DGRAM, htons(ETH_P_ALL));
+
+  if(listen_raw_sock_fd_ < 0){
+    perror("Error socket(): ");
+    exit(EXIT_FAILURE);
+  }
+
+
+  std::srand((u_int32_t)std::time(nullptr));
+  packet_xid_ = (u_int32_t) random();
+
+
+  struct timeval timeout = {};
+  timeout.tv_sec = 3;
+  timeout.tv_usec = 0;
+
+  setsockopt(listen_raw_sock_fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+
+  struct ifreq ifr = {};
+  memset((void*)&ifr, 0, sizeof(struct ifreq));
+  strncpy(ifr.ifr_name, ifname_, IFNAMSIZ);
+  setsockopt(listen_raw_sock_fd_, SOL_SOCKET, SO_BINDTODEVICE, (void*)&ifr, sizeof(ifr));
+
+}
+
+void DHCPClient::cleanup() {
+  close(listen_raw_sock_fd_);
+}
 
 struct dhcp_packet DHCPClient::dhcp_packet_with_headers_set() {
-  struct dhcp_packet packet;
+
+  struct dhcp_packet packet = {};
 
   // clear the packet data structure
   bzero(&packet, sizeof(packet));
@@ -35,37 +89,28 @@ struct dhcp_packet DHCPClient::dhcp_packet_with_headers_set() {
   packet.hlen = IFHWADDRLEN;
 
   packet.hops = 0;
-
-  // transaction id is supposed to be random
-  srand((unsigned int)time(nullptr));
-
   packet.xid = htonl(packet_xid_);
-
   packet.secs = htons(USHRT_MAX);
+  packet.flags = htons(BOOTP_UNICAST);
 
-  packet.flags = htons(BOOTP_BROADCAST);
-
-
-  memcpy(packet.chaddr, client_hardware_address_.c_str(), IFHWADDRLEN);
-
+  memcpy(packet.chaddr, hwaddr_, IFHWADDRLEN);
   return packet;
 }
 
 /* sends a DHCPDISCOVER broadcast message in an attempt to find DHCP servers */
-int DHCPClient::send_dhcp_discover(int sock){
-  auto discover_packet = dhcp_packet_with_headers_set();
-  struct sockaddr_in sockaddr_broadcast;
+int DHCPClient::send_dhcp_discover() {
+  discovery_ = dhcp_packet_with_headers_set();
 
   int offset = 0;
-  discover_packet.options[offset++] = 0x63;
-  discover_packet.options[offset++] = 0x82;
-  discover_packet.options[offset++] = 0x53;
-  discover_packet.options[offset++] = 0x63;
+  discovery_.options[offset++] = 0x63;
+  discovery_.options[offset++] = 0x82;
+  discovery_.options[offset++] = 0x53;
+  discovery_.options[offset++] = 0x63;
 
   u_int8_t option;
 
-  discover_packet.op = BOOTREQUEST;
-  offset += add_dhcp_option(&discover_packet,
+  discovery_.op = BOOTREQUEST;
+  offset += add_dhcp_option(&discovery_,
                             DHO_DHCP_MESSAGE_TYPE,
                             &(option = DHCPDISCOVER),
                             offset,
@@ -74,7 +119,7 @@ int DHCPClient::send_dhcp_discover(int sock){
 
   /* the IP address we're requesting */
   if(request_specific_address_){
-    offset += add_dhcp_option(&discover_packet,
+    offset += add_dhcp_option(&discovery_,
                               DHO_DHCP_REQUESTED_ADDRESS,
                               (u_int8_t*)&requested_address_,
                               offset,
@@ -85,117 +130,94 @@ int DHCPClient::send_dhcp_discover(int sock){
   char hostname[1024];
   hostname[1023] = 0x00;
   gethostname(hostname, 1023);
-  offset += add_dhcp_option(&discover_packet,
+  offset += add_dhcp_option(&discovery_,
                             DHO_HOST_NAME,
                             (u_int8_t*)&hostname,
                             offset,
-                            (size_t) strlen(hostname)
+                            (u_int8_t) strlen(hostname)
                             );
 
-  u_int8_t parameter_requst_list[] = {DHO_SUBNET_MASK,
-                                      DHO_BROADCAST_ADDRESS,
-                                      DHO_TIME_OFFSET,
-                                      DHO_ROUTERS,
-                                      DHO_DOMAIN_NAME,
-                                      DHO_DOMAIN_NAME_SERVERS,
-                                      DHO_HOST_NAME,
-                                      DHO_NETBIOS_NAME_SERVERS,
-                                      DHO_INTERFACE_MTU,
-                                      DHO_STATIC_ROUTES,
-                                      DHO_NTP_SERVERS };
+  u_int8_t parameter_requst_list[] = {
+          DHO_SUBNET_MASK,
+          DHO_BROADCAST_ADDRESS,
+          DHO_TIME_OFFSET,
+          DHO_ROUTERS,
+          DHO_DOMAIN_NAME,
+          DHO_DOMAIN_NAME_SERVERS,
+          DHO_HOST_NAME,
+          DHO_NETBIOS_NAME_SERVERS,
+          DHO_INTERFACE_MTU,
+          DHO_STATIC_ROUTES,
+          DHO_NTP_SERVERS
+  };
 
-  offset += add_dhcp_option(&discover_packet,
+  offset += add_dhcp_option(&discovery_,
                             DHO_DHCP_PARAMETER_REQUEST_LIST,
                             (u_int8_t*)&parameter_requst_list,
                             offset,
                             sizeof(parameter_requst_list)
                             );
 
-  end_dhcp_option(&discover_packet, offset);
-
-
-
-  /* send the DHCPDISCOVER packet to broadcast address */
-  sockaddr_broadcast.sin_family=AF_INET;
-  sockaddr_broadcast.sin_port=htons(DHCP_SERVER_PORT);
-  sockaddr_broadcast.sin_addr.s_addr=INADDR_BROADCAST;
-  bzero(&sockaddr_broadcast.sin_zero,sizeof(sockaddr_broadcast.sin_zero));
+  end_dhcp_option(&discovery_, offset);
 
   /* send the DHCPDISCOVER packet out */
-  send_dhcp_packet(&discover_packet,sizeof(discover_packet),sock,&sockaddr_broadcast);
-
-  parse_dhcp_packet(&discover_packet);
-  return EXIT_SUCCESS;
+  return send_dhcp_packet(&discovery_, sizeof(discovery_), ifname_);
 }
 
 
 /* waits for a DHCPOFFER message from one or more DHCP servers */
-std::vector<dhcp_packet> DHCPClient::get_dhcp_offer(int sock){
-  struct dhcp_packet offer_packet;
-  std::vector<dhcp_packet> dhcp_packets;
-  struct sockaddr_in source;
-  int result;
-  int responses = 0;
-  time_t start_time;
-  time_t current_time;
-
-  time(&start_time);
+void DHCPClient::get_dhcp_offer() {
 
   /* receive as many responses as we can */
-  for(responses=0, valid_responses_=0 ; ; ){
-    // todo: this should be changed.
-    time(&current_time);
-    if((current_time-start_time) >= DHCP_OFFER_TIMEOUT) {
-      break;
-    }
+  auto offer_packet = (struct dhcp_packet*)malloc(sizeof(dhcp_packet));
 
-    bzero(&source, sizeof(source));
-    bzero(&offer_packet, sizeof(offer_packet));
+  memset(offer_packet, 0 , sizeof(struct dhcp_packet));
+  bzero(offer_packet, sizeof(struct dhcp_packet));
 
-    receive_dhcp_packet(&offer_packet, sizeof(offer_packet), sock, DHCP_OFFER_TIMEOUT, &source);
-    responses++;
+  for(int count = 0;
+          count <= sizeof(dhcp_packet) + sizeof(ethhdr) + sizeof(iphdr) + sizeof(udphdr) ; ){
+    ioctl(listen_raw_sock_fd_, FIONREAD, &count);
+    usleep(1000);
+  }
+  for(bool valid = false; not valid ;) {
 
-    /* check packet xid to see if its the same as the one we used in the discover packet */
-    if(ntohl(offer_packet.xid)!=packet_xid_){
-      continue;
-    }
-    /* check hardware address */
-    result=EXIT_SUCCESS;
-    for( int x = 0 ; x < IFHWADDRLEN ; x++ ) {
-      if(offer_packet.chaddr[x] != client_hardware_address_.at((unsigned long)x)) {
-        result = EXIT_FAILURE;
-      }
-    }
-    if(result==EXIT_FAILURE){
+    auto result = receive_dhcp_packet(listen_raw_sock_fd_, offer_packet, sizeof(struct dhcp_packet), DHCP_OFFER_TIMEOUT);
+    if(result < 0){
       continue;
     }
 
-    add_dhcp_offer(source.sin_addr,&offer_packet);
-    dhcp_packets.push_back(offer_packet);
-    valid_responses_++;
+    valid = validate_packet(offer_packet);
   }
 
-  return dhcp_packets;
+  /* check packet xid to see if its the same as the one we used in the discover packet */
+  if(ntohl(offer_packet->xid)!=packet_xid_){
+    return;
+  }
+
+  /* check hardware address */
+  if(strcmp((char*)&offer_packet->chaddr, (char*)&hwaddr_) == 0) {
+    offers_.push_back(*offer_packet);
+  }
 }
 
 
-int DHCPClient::send_dhcp_request(int sock, struct in_addr server, struct in_addr requested) {
-  request = dhcp_packet_with_headers_set();
+int DHCPClient::send_dhcp_request(struct in_addr server, struct in_addr requested) {
+  request_ = dhcp_packet_with_headers_set();
   struct sockaddr_in sockaddr_broadcast;
 
-  request.siaddr = server;
+  request_.siaddr = server;
 
   int offset = 0;
   u_int8_t option;
 
-  request.options[offset++] = 0x63;
-  request.options[offset++] = 0x82;
-  request.options[offset++] = 0x53;
-  request.options[offset++] = 0x63;
+  request_.options[offset++] = 0x63;
+  request_.options[offset++] = 0x82;
+  request_.options[offset++] = 0x53;
+  request_.options[offset++] = 0x63;
 
-  request.op = BOOTREQUEST;
+  request_.op = BOOTREQUEST;
 
-  offset += add_dhcp_option(&request,
+  offset += add_dhcp_option(&request_,
                             DHO_DHCP_MESSAGE_TYPE,
                             &(option = DHCPREQUEST),
                             offset,
@@ -203,7 +225,7 @@ int DHCPClient::send_dhcp_request(int sock, struct in_addr server, struct in_add
   );
 
   /* the IP address we're requesting */
-  offset += add_dhcp_option(&request,
+  offset += add_dhcp_option(&request_,
                             DHO_DHCP_REQUESTED_ADDRESS,
                             (u_int8_t*)&requested,
                             offset,
@@ -211,7 +233,7 @@ int DHCPClient::send_dhcp_request(int sock, struct in_addr server, struct in_add
   );
 
   /* the IP address of the server */
-  offset += add_dhcp_option(&request,
+  offset += add_dhcp_option(&request_,
                             DHO_DHCP_SERVER_IDENTIFIER,
                             (u_int8_t*)&server,
                             offset,
@@ -221,14 +243,14 @@ int DHCPClient::send_dhcp_request(int sock, struct in_addr server, struct in_add
   char hostname[1024];
   hostname[1023] = 0x00;
   gethostname(hostname, 1023);
-  offset += add_dhcp_option(&request,
+  offset += add_dhcp_option(&request_,
                             DHO_HOST_NAME,
                             (u_int8_t*)&hostname,
                             offset,
-                            (size_t) strlen(hostname)
+                            (u_int8_t) strlen(hostname)
   );
 
-  end_dhcp_option(&request, offset);
+  end_dhcp_option(&request_, offset);
 
 
   /* send the DHCPREQUEST packet to broadcast address */
@@ -238,23 +260,22 @@ int DHCPClient::send_dhcp_request(int sock, struct in_addr server, struct in_add
   bzero(&sockaddr_broadcast.sin_zero,sizeof(sockaddr_broadcast.sin_zero));
 
   /* send the DHCPREQUEST packet out */
-  send_dhcp_packet(&request,sizeof(dhcp_packet),sock,&sockaddr_broadcast);
+  send_dhcp_packet(&request_, sizeof(dhcp_packet), ifname_);
 
-  selected_server_ = request.siaddr;
+  selected_server_ = request_.siaddr;
 
-
-  parse_dhcp_packet(&request);
+  parse_dhcp_packet(&request_);
   return 0;
 }
 
-int DHCPClient::get_dhcp_acknowledgement(int socket, struct in_addr server) {
+int DHCPClient::get_dhcp_acknowledgement(struct in_addr server) {
 
   struct sockaddr_in selected_server;
   selected_server.sin_addr = server;
-  receive_dhcp_packet(&acknowledge, sizeof(dhcp_packet), socket, DHCP_OFFER_TIMEOUT, &selected_server);
+  receive_dhcp_packet(listen_raw_sock_fd_, &acknowledge_, sizeof(dhcp_packet), DHCP_OFFER_TIMEOUT);
 
 
-  parse_dhcp_packet(&acknowledge);
+  parse_dhcp_packet(&acknowledge_);
 
   return 0;
 }
@@ -322,24 +343,9 @@ int DHCPClient::add_dhcp_offer(struct in_addr source, dhcp_packet* offer_packet)
   new_offer->server_address = source;
   new_offer->offered_address = offer_packet->yiaddr;
 
-  dhcp_offers_.push_back(*new_offer);
   responding_servers_.push_back(source);
   return EXIT_SUCCESS;
 }
-
-void DHCPClient::free_dhcp_offer_list(){
-  dhcp_offers_.clear();
-}
-
-
-/* frees memory allocated to requested server list */
-int DHCPClient::free_requested_server_list(){
-
-  requested_servers_.clear();
-
-  return EXIT_SUCCESS;
-}
-
 
 /* creates a socket for DHCP communication */
 int create_dhcp_socket(std::string interface_name){
@@ -394,26 +400,4 @@ int create_dhcp_socket(std::string interface_name){
 
 void close_dhcp_socket(int sock){
 	close(sock);
-}
-
-
-/* determines hardware address on client machine */
-int get_hardware_address(std::string interface_name, std::string *result) {
-	int i;
-	struct ifreq ifr;
-
-	strncpy(ifr.ifr_name, interface_name.c_str(), IFNAMSIZ);
-  int sock = socket(PF_INET, SOCK_DGRAM, IPPROTO_IP);
-
-	if( ioctl(sock, SIOCGIFHWADDR, &ifr) < 0){
-		perror("Could not get interface name");
-		return errno;
-	}
-	unsigned char mac_address[6];
-	memcpy(&mac_address[0], &ifr.ifr_hwaddr.sa_data, 6);
-  char mac[12];
-	sprintf(mac, "%2.2x%2.2x%2.2x%2.2x%2.2x%2.2x",mac_address[0], mac_address[1], mac_address[2], mac_address[3], mac_address[4], mac_address[5]);
-  close(sock);
-  *result = std::string(mac);
-  return 0;
 }

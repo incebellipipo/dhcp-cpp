@@ -2,100 +2,186 @@
 // Created by cem on 23.07.2018.
 //
 
-#include <dhcp-packet.h>
 #include <cstdio>
 #include <cstring>
 #include <sys/types.h>
 #include <cerrno>
 #include <arpa/inet.h>
-#include <dhcp-client.h>
 #include <iostream>
 #include <map>
 
+#include <unistd.h>
 
-void print_packet(const u_int8_t *data, int len) {
-#ifdef DEBUG
+#include <netinet/ip.h>
+#include <netinet/udp.h>
+#include <linux/if_ether.h>
+#include <linux/if_packet.h>
+
+#include <dhcp-packet.h>
+#include <dhcp-client.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
+
+inline void print_packet(const u_int8_t *data, int len) {
+#if defined(DEBUG_PACKET)
   for (int i = 0; i < len; i++) {
     if (i % 0x10 == 0) {
-      printf("\n %04x :: ", i);
+      printf("\n%04x ::\t", i);
+    }
+    if( i % 0x08 == 0){
+      printf("   ");
     }
     printf("%02x ", data[i]);
   }
+  printf("\n");
 #endif
 }
 
 /* sends a DHCP packet */
-int send_dhcp_packet(void *buffer, int buffer_size, int sock, struct sockaddr_in *destination){
-	struct sockaddr_in myname;
-	int result;
+int send_dhcp_packet(void *buffer, int buffer_size, char *ifname) {
 
-	result = (int) sendto(sock,(char *)buffer, (size_t)buffer_size,0, (struct sockaddr *)destination,sizeof(*destination));
+  auto udpchecksum = [](char* ip, char* udp, u_int16_t length) -> u_int32_t {
+    udp[6] = udp[7] = 0;
+    struct udp_psedoheader header = {};
+    u_int32_t checksum = 0x0;
+    memcpy((char*)&header.srcaddr, &ip[12], 4);
+    memcpy((char*)&header.dstaddr, &ip[16], 4);
+    header.zero = 0;
+    header.protocol = IPPROTO_UDP;
+    header.length = htons(length);
+    auto hptr = (u_int16_t*)&header;
+    for(int hlen = sizeof(header) ; hlen > 0; hlen -= 2) {
+      checksum += *(hptr++);
+    }
+    auto uptr = (u_int16_t*)udp;
+    for( ; length > 1 ; length -= 2){
+      checksum += *(uptr++);
+    }
+    if( length ){
+      checksum += *((u_int8_t*)uptr);
+    }
+    do {
+      checksum = (checksum >> 16u) + (checksum & 0xFFFFu);
+    } while( checksum != (checksum & 0xFFFFu));
+    auto ans = (u_int16_t) checksum;
+    return (ans == 0xFF) ? 0xFF : ntohs(~ans);
+  };
 
-	if (verbose) {
-    printf("[verbose] send_dhcp_packet result: %d\n", result);
+  auto checksum = [](u_int16_t *addr, int length) -> u_int32_t {
+    int nleft = length;
+    u_int32_t sum = 0;
+    u_int16_t *w = addr;
+    u_int32_t answer = 0;
+    for( ; nleft > 1 ; nleft -= sizeof(u_int16_t)){
+      sum += *(w++);
+    }
+    if( nleft == 1 ){
+      *(u_int8_t *)(&answer) = *(u_int8_t *)w;
+      sum += answer;
+    }
+    sum = (sum >> 16u) + (sum & 0xFFFFu);
+    sum += (sum >> 16u);
+    return ~sum;
+  };
+
+  int result = -1;
+  auto buf = (char*) malloc(
+          sizeof(struct ethhdr) +     // 14
+          sizeof(struct iphdr) +      // 20
+          sizeof(struct udphdr) +     // 8
+          sizeof(struct dhcp_packet)   // 548
+          );
+
+  memcpy(&buf[sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(udphdr)],
+          buffer,
+         (size_t)buffer_size);
+
+  // Construction of eth header
+  auto ethh = (struct ethhdr*)(buf);
+
+  struct ifreq ifr = {};
+  memset(&ifr, 0, sizeof(ifreq));
+  strncpy(ifr.ifr_name, ifname, IFNAMSIZ );
+  int ifreq_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
+  ioctl(ifreq_sock, SIOCGIFHWADDR, &ifr);
+  close(ifreq_sock);
+
+  memset(ethh->h_dest, 0xff, IFHWADDRLEN);
+  memcpy((void*)&ethh->h_source, &ifr.ifr_hwaddr.sa_data, IFHWADDRLEN);
+  ethh->h_proto = htons(ETH_P_IP);
+
+  // Construction of udp header
+  auto udph = (struct udphdr *)(buf + sizeof(struct ethhdr) + sizeof(struct iphdr));
+  udph->source = htons(DHCP_CLIENT_PORT);
+  udph->dest = htons(DHCP_SERVER_PORT);
+  udph->len = htons(buffer_size + sizeof(struct udphdr));
+  udph->check = 0x0;
+
+  // Construction of ip header https://www.inetdaemon.com/tutorials/internet/ip/datagram_structure.shtml
+  auto iph = (struct iphdr*)(buf + sizeof(struct ethhdr));
+  iph->version = IPVERSION;
+  iph->ihl = 5;
+  iph->tos = 0x10;
+  iph->tot_len = htons(sizeof(struct iphdr) + sizeof(struct udphdr) + buffer_size);
+  iph->id = 0;
+  iph->frag_off = 0;
+  iph->ttl = 0x80;
+  iph->protocol = IPPROTO_UDP;
+  iph->check = 0x0;
+  inet_aton("0.0.0.0", (struct in_addr*)&iph->saddr);
+  inet_aton("255.255.255.255", (struct in_addr*)&iph->daddr);
+
+  udph->check = htons((u_int16_t)
+          udpchecksum((char*)iph, (char*)udph, buffer_size + sizeof(struct udphdr)));
+  iph->check = (u_int16_t)
+          checksum((u_int16_t*)iph, sizeof(struct iphdr));
+
+  int total_len = sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr) + buffer_size;
+
+  struct sockaddr_ll device = {};
+  if((device.sll_ifindex = if_nametoindex(ifname)) == 0){
+    perror("Failed to resolve interface index");
+    exit(EXIT_FAILURE);
   }
 
+  int sendv4_sock = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
+
+  result = (int)sendto(sendv4_sock, buf, (size_t)total_len, 0, (struct sockaddr*)&device, sizeof(device));
+
+  close(sendv4_sock);
+
+  print_packet((u_int8_t *)buf, result);
+
+  free(buf);
 	if(result<0) {
 	  perror("Send dhcp packet resulting with an error");
-    return EXIT_FAILURE;
+    exit(EXIT_FAILURE);
   }
 
-	return EXIT_SUCCESS;
+	return result;
 }
 
 /* receives a DHCP packet */
-int receive_dhcp_packet(void *buffer, int buffer_size, int sock, int timeout, struct sockaddr_in *address){
-  struct timeval tv;
-  fd_set readfds;
-  int recv_result;
-  socklen_t address_size;
-  struct sockaddr_in source_address;
+int receive_dhcp_packet(int sock, void *packet, int packet_size, int timeout) {
 
-  /* wait for data to arrive (up time timeout) */
-  tv.tv_sec=timeout;
-  tv.tv_usec=0;
-  FD_ZERO(&readfds);
-  FD_SET(sock,&readfds);
-  select(sock+1,&readfds, nullptr, nullptr,&tv);
+  size_t max_length = sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr) + packet_size;
+  char * buf;
+  buf = (char *)malloc(max_length);
+  memset(buf, 0 , sizeof(buf));
+  bzero(buf, max_length);
 
-  /* make sure some data has arrived */
-  if(!FD_ISSET(sock,&readfds)){
-    if (verbose) {
-      printf("[verbose] No (more) data received\n");
-    }
-    return -1;
+  auto len = (int)recv(sock, buf, max_length, 0);
+  if(len < 0){
+    perror("Error recv(): ");
+    return len;
   }
+  print_packet((u_int8_t *)buf, len);
+  memcpy(packet,
+         &buf[sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr)],
+         len - (sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr))
+   );
 
-  else{
-
-    /* why do we need to peek first?  i don't know, its a hack.  without it, the source address of the first packet received was
-    not being interpreted correctly.  sigh... */
-    bzero(&source_address,sizeof(source_address));
-    address_size=sizeof(source_address);
-
-    recv_result=(int)recvfrom(sock,(char *)buffer,(size_t)buffer_size,MSG_PEEK,(struct sockaddr *)&source_address,&address_size);
-
-    if (verbose) {
-      printf("[verbose] recv_result_1: %d\n", recv_result);
-    }
-
-    recv_result=(int)recvfrom(sock,(char *)buffer,(size_t)buffer_size,0,(struct sockaddr *)&source_address,&address_size);
-
-    if (verbose) {
-      printf("[verbose] recv_result_2: %d\n", recv_result);
-    }
-
-    if(recv_result==-1){
-      if (verbose) {
-				perror("[verbose] recvfrom() failed, ");
-			}
-      return errno;
-    }
-		else{
-			memcpy(address,&source_address,sizeof(source_address));
-			return EXIT_SUCCESS;
-		}
-  }
+  return len;
 }
 
 int add_dhcp_option(struct dhcp_packet* packet, u_int8_t code, u_int8_t* data, int offset, u_int8_t len) {
@@ -168,4 +254,22 @@ std::vector<dhcp_option> parse_dhcp_packet(struct dhcp_packet *packet){
     printf("\n");
   }
 
+}
+
+bool validate_packet(struct dhcp_packet* packet){
+  if (packet->op != BOOTREPLY) {
+    return false;
+  }
+
+  if (packet->options[0] != 0x63)
+    return false;
+  if (packet->options[1] != 0x82)
+    return false;
+  if (packet->options[2] != 0x53)
+    return false;
+  if (packet->options[3] != 0x63)
+    return false;
+
+
+  return true;
 }

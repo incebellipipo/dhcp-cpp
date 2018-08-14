@@ -25,18 +25,19 @@ void print_packet(const u_int8_t *data, int len);
  * @param address information in sockaddr_in struct
  * @return Success value: -1 if fails 0 if succeed
  */
-int send_dhcp_packet(void *buffer, int buffer_size, int sock, struct sockaddr_in *destination);
+int
+send_dhcp_packet(void *buffer, int buffer_size, char *ifname);
 
 /**
  * @brief Receives packet with specified values
- * \param buffer to be written
- * \param buffer_size buffer size to be written in buffer
+ * \param packet to be written
+ * \param packet_size buffer size to be written in buffer
  * \param sock socker file descriptor
  * \param timeout in seconds
  * \param address address to be received
  * @return Success value: -1 if fails 0 if succeed
  */
-int receive_dhcp_packet(void *buffer, int buffer_size, int sock, int timeout, struct sockaddr_in *address);
+int receive_dhcp_packet(int sock, void *packet, int packet_size, int timeout);
 
 /**
  * @brief Adds option to dhcp packet with given offset
@@ -56,6 +57,13 @@ int add_dhcp_option(struct dhcp_packet* packet, u_int8_t code, u_int8_t* data, i
  */
 void end_dhcp_option(struct dhcp_packet* packet, int offset);
 
+
+/**
+ * @brief Checks if packet is invalid or not
+ * @param packet
+ * @return true if valid, else false
+ */
+bool validate_packet(struct dhcp_packet* packet);
 /**
  * @brief Parses the packet and put it in the vector
  * @param packet pointer

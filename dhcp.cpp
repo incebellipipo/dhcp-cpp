@@ -30,50 +30,45 @@
 
 
 int main(int argc, char **argv){
-  int dhcp_socket;
   int result;
+  if( argc < 2){
+    exit(EXIT_FAILURE);
+  }
 
-  DHCPClient dhcpClient;
+  DHCPClient dhcpClient(argv[1]);
 
-  std::string interface_name("enp0s31f6");
+  dhcpClient.initialize();
 
-  /* create socket for DHCP communications */
-  dhcp_socket=create_dhcp_socket(interface_name);
-
-  std::string client_hardware_address;
-  get_hardware_address(interface_name, &client_hardware_address);
-
-  std::srand((u_int32_t)std::time(nullptr));
-  dhcpClient.set_packet_xid((u_int32_t) random());
-  dhcpClient.set_client_hardware_address(client_hardware_address);
 
   std::cout << "\n======== DISCOVER ===============================" << std::endl;
-  dhcpClient.send_dhcp_discover(dhcp_socket);
+  dhcpClient.send_dhcp_discover();
 
   std::cout << "\n\n======== OFFER    ===============================" << std::endl;
-  auto packets = dhcpClient.get_dhcp_offer(dhcp_socket);
+  dhcpClient.get_dhcp_offer();
 
 
-  for(auto i : dhcpClient.getDhcpOffers()){
+  dhcpClient.cleanup();
+  return 0;
+
+  for(auto i : dhcpClient.getOffers()){
 
     std::cout << "\n\n======== REQUEST  ===============================" << std::endl;
-    dhcpClient.send_dhcp_request(dhcp_socket, i.server_address, i.offered_address);
+    dhcpClient.send_dhcp_request(i.siaddr, i.yiaddr);
 
     std::cout << "\n\n======== ACKNOWLEDGEMENT ========================" << std::endl;
-    dhcpClient.get_dhcp_acknowledgement(dhcp_socket, i.server_address);
+    dhcpClient.get_dhcp_acknowledgement(i.siaddr);
 
-    std::string(inet_ntoa(i.offered_address));
-    std::cout << "\n\nGot ip: " << std::string(inet_ntoa(i.offered_address))
-              << " from server: " <<  std::string(inet_ntoa(i.server_address))
+    std::string(inet_ntoa(i.siaddr));
+    std::cout << "\n\nGot ip: " << std::string(inet_ntoa(i.yiaddr))
+              << " from server: " <<  std::string(inet_ntoa(i.yiaddr))
               << std::endl;
     break;
   }
 
-  close_dhcp_socket(dhcp_socket);
 
 
 
-  return result;
+  return 0;
 }
 
 /* gets state and plugin output to return */
