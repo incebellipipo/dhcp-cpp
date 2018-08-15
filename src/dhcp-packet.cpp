@@ -22,6 +22,7 @@
 #include <net/if.h>
 #include <sys/ioctl.h>
 
+
 inline void print_packet(const u_int8_t *data, int len) {
 #if defined(DEBUG_PACKET)
   for (int i = 0; i < len; i++) {
@@ -37,52 +38,35 @@ inline void print_packet(const u_int8_t *data, int len) {
 #endif
 }
 
+u_int32_t udp_checksum_s(char *ip, char *udp, u_int16_t length) {
+  udp[6] = udp[7] = 0;
+  struct udp_psedoheader header = {};
+  u_int32_t checksum = 0x0;
+  memcpy((char*)&header.srcaddr, &ip[12], 4);
+  memcpy((char*)&header.dstaddr, &ip[16], 4);
+  header.zero = 0;
+  header.protocol = IPPROTO_UDP;
+  header.length = htons(length);
+  auto hptr = (u_int16_t*)&header;
+  for(int hlen = sizeof(header) ; hlen > 0; hlen -= 2) {
+    checksum += *(hptr++);
+  }
+  auto uptr = (u_int16_t*)udp;
+  for( ; length > 1 ; length -= 2){
+    checksum += *(uptr++);
+  }
+  if( length ){
+    checksum += *((u_int8_t*)uptr);
+  }
+  do {
+    checksum = (checksum >> 16u) + (checksum & 0xFFFFu);
+  } while( checksum != (checksum & 0xFFFFu));
+  auto ans = (u_int16_t) checksum;
+  return (ans == 0xFF) ? 0xFF : ntohs(~ans);
+}
+
 /* sends a DHCP packet */
 int send_dhcp_packet(void *buffer, int buffer_size, char *ifname) {
-
-  auto udpchecksum = [](char* ip, char* udp, u_int16_t length) -> u_int32_t {
-    udp[6] = udp[7] = 0;
-    struct udp_psedoheader header = {};
-    u_int32_t checksum = 0x0;
-    memcpy((char*)&header.srcaddr, &ip[12], 4);
-    memcpy((char*)&header.dstaddr, &ip[16], 4);
-    header.zero = 0;
-    header.protocol = IPPROTO_UDP;
-    header.length = htons(length);
-    auto hptr = (u_int16_t*)&header;
-    for(int hlen = sizeof(header) ; hlen > 0; hlen -= 2) {
-      checksum += *(hptr++);
-    }
-    auto uptr = (u_int16_t*)udp;
-    for( ; length > 1 ; length -= 2){
-      checksum += *(uptr++);
-    }
-    if( length ){
-      checksum += *((u_int8_t*)uptr);
-    }
-    do {
-      checksum = (checksum >> 16u) + (checksum & 0xFFFFu);
-    } while( checksum != (checksum & 0xFFFFu));
-    auto ans = (u_int16_t) checksum;
-    return (ans == 0xFF) ? 0xFF : ntohs(~ans);
-  };
-
-  auto checksum = [](u_int16_t *addr, int length) -> u_int32_t {
-    int nleft = length;
-    u_int32_t sum = 0;
-    u_int16_t *w = addr;
-    u_int32_t answer = 0;
-    for( ; nleft > 1 ; nleft -= sizeof(u_int16_t)){
-      sum += *(w++);
-    }
-    if( nleft == 1 ){
-      *(u_int8_t *)(&answer) = *(u_int8_t *)w;
-      sum += answer;
-    }
-    sum = (sum >> 16u) + (sum & 0xFFFFu);
-    sum += (sum >> 16u);
-    return ~sum;
-  };
 
   int result = -1;
   auto buf = (char*) malloc(
@@ -132,9 +116,9 @@ int send_dhcp_packet(void *buffer, int buffer_size, char *ifname) {
   inet_aton("255.255.255.255", (struct in_addr*)&iph->daddr);
 
   udph->check = htons((u_int16_t)
-          udpchecksum((char*)iph, (char*)udph, buffer_size + sizeof(struct udphdr)));
+          udp_checksum_s((char *) iph, (char *) udph, buffer_size + sizeof(struct udphdr)));
   iph->check = (u_int16_t)
-          checksum((u_int16_t*)iph, sizeof(struct iphdr));
+          ip_checksum(iph);
 
   int total_len = sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr) + buffer_size;
 
@@ -174,14 +158,16 @@ bool receive_dhcp_packet(int sock, void *packet, int packet_size, int timeout) {
   buf = (u_int8_t *)malloc(max_length * 2);
   bzero(buf, max_length);
 
+  int len = 0;
   int read_count = 0;
-  for(bool valid = false; not valid and read_count < 4 ; valid = validate_packet(&incoming_packet)){
-    auto len = (int) recv(sock, buf, max_length, 0);
+  for(bool valid = false; not valid and read_count < 4 ; valid = validate_dhcp_packet(buf, len)){
+    len = (int) recv(sock, buf, max_length, 0);
     read_count++;
     if(len < 0){
       perror("Error recv(): ");
       return false;
     }
+
     memcpy(&incoming_packet,
           &buf[sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr)],
           len -(sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr))
@@ -266,19 +252,89 @@ std::vector<dhcp_option> parse_dhcp_packet(struct dhcp_packet *packet){
 
 }
 
-bool validate_packet(struct dhcp_packet* packet){
-  if (packet->op != BOOTREPLY) {
+u_int32_t calculate_checksum(const u_int8_t *buf, int len, u_int32_t sum) {
+  uint i;
+  /* Checksum all the pairs of bytes first... */
+  for (i = 0; i < (len & ~1U); i += 2) {
+    sum += (u_int16_t)ntohs(*((u_int16_t *)(buf + i)));
+    if (sum > 0xFFFF)
+      sum -= 0xFFFF;
+  }
+
+  /*
+   * If there's a single byte left over, checksum it, too.
+   * Network byte order is big-endian, so the remaining byte is
+   * the high byte.
+   */
+  if (i < len) {
+    sum += buf[i] << 8;
+    if (sum > 0xFFFF)
+      sum -= 0xFFFF;
+  }
+  return sum;
+}
+
+
+
+uint32_t ip_checksum(iphdr *ip_header) {
+  ip_header->check = 0;
+  auto sum = calculate_checksum((u_int8_t *) ip_header, ip_header->ihl * 4, 0);
+  sum = ~ sum & 0xFFFFu;
+  return htons((u_int16_t) sum);
+}
+
+bool validate_dhcp_packet(u_int8_t *packet, int size){
+
+  struct iphdr ip_header = {};
+  memset(&ip_header, 0, sizeof(ip_header));
+  bzero(&ip_header, sizeof(ip_header));
+
+  struct udphdr udp_header = {};
+  memset(&udp_header, 0, sizeof(udp_header));
+  bzero(&udp_header, sizeof(udp_header));
+
+  struct dhcp_packet dhcp_p = {};
+  memset(&dhcp_p, 0 , sizeof(dhcp_p));
+  bzero(&dhcp_p, sizeof(dhcp_p));
+
+  memcpy(&ip_header,
+        &packet[sizeof(struct ethhdr)],
+        sizeof(struct iphdr)
+  );
+
+  // https://github.com/DragonFlyBSD/DragonFlyBSD/blob/master/sbin/dhclient/packet.c
+  // https://gist.github.com/GreenRecycleBin/1273763
+
+  memcpy(&udp_header,
+        &packet[sizeof(struct ethhdr) + sizeof(struct iphdr)],
+        sizeof(struct udphdr)
+  );
+
+  memcpy(&dhcp_p,
+        &packet[sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr)],
+         size -(sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr))
+  );
+
+  auto given_ip_checksum = ip_header.check;
+  ip_header.check = 0;
+
+  if( given_ip_checksum != ip_checksum(&ip_header)){
     return false;
   }
 
-  if (packet->options[0] != 0x63)
+  if (dhcp_p.op != BOOTREPLY) {
     return false;
-  if (packet->options[1] != 0x82)
+  }
+
+  if (dhcp_p.options[0] != 0x63)
     return false;
-  if (packet->options[2] != 0x53)
+  if (dhcp_p.options[1] != 0x82)
     return false;
-  if (packet->options[3] != 0x63)
+  if (dhcp_p.options[2] != 0x53)
     return false;
+  if (dhcp_p.options[3] != 0x63)
+    return false;
+
 
 
   return true;

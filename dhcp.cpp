@@ -41,25 +41,28 @@ int main(int argc, char **argv){
 
 
   std::cout << "\n======== DISCOVER ===============================" << std::endl;
-  dhcpClient.send_dhcp_discover();
+  dhcpClient.do_discover();
 
   std::cout << "\n\n======== OFFER    ===============================" << std::endl;
-  dhcpClient.get_dhcp_offer();
+  dhcpClient.listen_offer();
 
+  for(auto i : dhcpClient.get_offers()){
 
-  dhcpClient.cleanup();
-  return 0;
-
-  for(auto i : dhcpClient.getOffers()){
+    struct in_addr server_ip = {};
+    auto options = parse_dhcp_packet(&i);
+    for(auto option : options){
+      if(option.type == DHO_DHCP_SERVER_IDENTIFIER ){
+        memcpy((void*)&server_ip, option.data, option.length);
+      }
+    }
 
     std::cout << "\n\n======== REQUEST  ===============================" << std::endl;
-    dhcpClient.send_dhcp_request(i.siaddr, i.yiaddr);
+    dhcpClient.do_request(server_ip, i.yiaddr);
 
     std::cout << "\n\n======== ACKNOWLEDGEMENT ========================" << std::endl;
-    dhcpClient.get_dhcp_acknowledgement(i.siaddr);
+    dhcpClient.listen_acknowledgement(server_ip);
 
-    std::string(inet_ntoa(i.siaddr));
-    std::cout << "\n\nGot ip: " << std::string(inet_ntoa(i.yiaddr))
+    std::cout << "\n\nGot ip: " << std::string(inet_ntoa(server_ip))
               << " from server: " <<  std::string(inet_ntoa(i.yiaddr))
               << std::endl;
     break;
@@ -68,6 +71,7 @@ int main(int argc, char **argv){
 
 
 
+  dhcpClient.cleanup();
   return 0;
 }
 
