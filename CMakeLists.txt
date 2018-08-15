@@ -10,6 +10,7 @@ add_library(lib${PROJECT_NAME}-dev
         include/dhcp.h
         include/dhcp-client.h       src/dhcp-client.cpp
         include/dhcp-packet.h       src/dhcp-packet.cpp
+        include/lease.h             src/lease.cpp
         )
 # target_link_libraries(lib${PROJECT_NAME}-dev)
 

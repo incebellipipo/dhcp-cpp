@@ -13,6 +13,18 @@
 #include <netinet/udp.h>
 
 /**
+ * @brief UDP Pse
+ */
+typedef struct udp_pseudoheader{
+  uint32_t srcaddr;
+  uint32_t dstaddr;
+  uint8_t zero;
+  uint8_t protocol;
+  uint16_t length;
+} udp_pseudoheader;
+
+
+/**
  * @brief Prints packet just for debugging
  * @param data Data to be printed
  * @param len lenght of the data

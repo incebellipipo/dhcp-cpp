@@ -40,7 +40,7 @@ inline void print_packet(const u_int8_t *data, int len) {
 
 u_int32_t udp_checksum_s(char *ip, char *udp, u_int16_t length) {
   udp[6] = udp[7] = 0;
-  struct udp_psedoheader header = {};
+  struct udp_pseudoheader header = {};
   u_int32_t checksum = 0x0;
   memcpy((char*)&header.srcaddr, &ip[12], 4);
   memcpy((char*)&header.dstaddr, &ip[16], 4);
@@ -241,7 +241,7 @@ std::vector<dhcp_option> parse_dhcp_packet(struct dhcp_packet *packet){
       break;
     }
   }
-
+#if defined(DEBUG)
   for(auto option : options){
     printf("Option, Type: %3u, Lenght: %02X, Data: ", option.type, option.length);
     for(int i = 0; i < option.length; i ++){
@@ -249,7 +249,7 @@ std::vector<dhcp_option> parse_dhcp_packet(struct dhcp_packet *packet){
     }
     printf("\n");
   }
-
+#endif
 }
 
 u_int32_t calculate_checksum(const u_int8_t *buf, int len, u_int32_t sum) {

@@ -15,13 +15,6 @@
 
 //#define DEBUG_PACKET
 
-typedef struct udp_psedoheader {
-  uint32_t srcaddr;
-  uint32_t dstaddr;
-  uint8_t zero;
-  uint8_t protocol;
-  uint16_t length;
-} udp_psedoheader;
 
 
 int get_hardware_address(std::string interface_name, std::string *result);
@@ -66,7 +59,11 @@ public:
   void setRequestSpecificAddress(decltype(request_specific_address_) val) {request_specific_address_ = val;}
   auto getRequestSpecificAddress() -> decltype(request_specific_address_) { return request_specific_address_; }
 
+  auto get_discovery() -> decltype(discovery_) { return discovery_; }
   auto get_offers() -> decltype(offers_) { return offers_; }
+  auto get_request() -> decltype(request_) { return request_; }
+  auto get_acknowledge() -> decltype(acknowledge_) { return acknowledge_; }
+
 
   int do_discover();
 

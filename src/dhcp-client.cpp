@@ -59,12 +59,12 @@ void DHCPClient::initialize() {
 
   setsockopt(listen_raw_sock_fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
-/*
+
   struct ifreq ifr = {};
   memset((void*)&ifr, 0, sizeof(struct ifreq));
   strncpy(ifr.ifr_name, ifname_, IFNAMSIZ);
   setsockopt(listen_raw_sock_fd_, SOL_SOCKET, SO_BINDTODEVICE, (void*)&ifr, sizeof(ifr));
-*/
+
   std::srand((u_int32_t)std::time(nullptr));
   packet_xid_ = (u_int32_t) random();
 
@@ -148,7 +148,9 @@ int DHCPClient::do_discover() {
           DHO_NETBIOS_NAME_SERVERS,
           DHO_INTERFACE_MTU,
           DHO_STATIC_ROUTES,
-          DHO_NTP_SERVERS
+          DHO_NTP_SERVERS,
+          DHO_DHCP_RENEWAL_TIME,
+          DHO_DHCP_REBINDING_TIME
   };
 
   offset += add_dhcp_option(&discovery_,
@@ -262,7 +264,9 @@ int DHCPClient::do_request(struct in_addr server, struct in_addr requested) {
           DHO_NETBIOS_NAME_SERVERS,
           DHO_INTERFACE_MTU,
           DHO_STATIC_ROUTES,
-          DHO_NTP_SERVERS
+          DHO_NTP_SERVERS,
+          DHO_DHCP_RENEWAL_TIME,
+          DHO_DHCP_REBINDING_TIME
   };
 
   offset += add_dhcp_option(&request_,
@@ -282,12 +286,10 @@ int DHCPClient::do_request(struct in_addr server, struct in_addr requested) {
 
   /* send the DHCPREQUEST packet out */
   send_dhcp_packet(&request_, sizeof(dhcp_packet), ifname_);
-  parse_dhcp_packet(&request_);
   return 0;
 }
 
 int DHCPClient::listen_acknowledgement(struct in_addr server) {
   receive_dhcp_packet(listen_raw_sock_fd_, &acknowledge_, sizeof(dhcp_packet), DHCP_OFFER_TIMEOUT);
-  parse_dhcp_packet(&acknowledge_);
   return 0;
 }
