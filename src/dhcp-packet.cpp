@@ -162,26 +162,36 @@ int send_dhcp_packet(void *buffer, int buffer_size, char *ifname) {
 }
 
 /* receives a DHCP packet */
-int receive_dhcp_packet(int sock, void *packet, int packet_size, int timeout) {
+bool receive_dhcp_packet(int sock, void *packet, int packet_size, int timeout) {
 
   size_t max_length = sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr) + packet_size;
-  char * buf;
-  buf = (char *)malloc(max_length);
-  memset(buf, 0 , sizeof(buf));
+
+  struct dhcp_packet incoming_packet = {};
+  memset(&incoming_packet, 0 , sizeof(incoming_packet));
+  bzero(&incoming_packet, sizeof(incoming_packet));
+
+  u_int8_t * buf;
+  buf = (u_int8_t *)malloc(max_length * 2);
   bzero(buf, max_length);
 
-  auto len = (int)recv(sock, buf, max_length, 0);
-  if(len < 0){
-    perror("Error recv(): ");
-    return len;
+  int read_count = 0;
+  for(bool valid = false; not valid and read_count < 4 ; valid = validate_packet(&incoming_packet)){
+    auto len = (int) recv(sock, buf, max_length, 0);
+    read_count++;
+    if(len < 0){
+      perror("Error recv(): ");
+      return false;
+    }
+    memcpy(&incoming_packet,
+          &buf[sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr)],
+          len -(sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr))
+    );
   }
-  print_packet((u_int8_t *)buf, len);
-  memcpy(packet,
-         &buf[sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr)],
-         len - (sizeof(struct ethhdr) + sizeof(struct iphdr) + sizeof(struct udphdr))
-   );
 
-  return len;
+  print_packet(buf,(int)max_length);
+  memcpy(packet, &incoming_packet, sizeof(struct dhcp_packet));
+  free(buf);
+  return true;
 }
 
 int add_dhcp_option(struct dhcp_packet* packet, u_int8_t code, u_int8_t* data, int offset, u_int8_t len) {

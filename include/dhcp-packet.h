@@ -37,7 +37,7 @@ send_dhcp_packet(void *buffer, int buffer_size, char *ifname);
  * \param address address to be received
  * @return Success value: -1 if fails 0 if succeed
  */
-int receive_dhcp_packet(int sock, void *packet, int packet_size, int timeout);
+bool receive_dhcp_packet(int sock, void *packet, int packet_size, int timeout);
 
 /**
  * @brief Adds option to dhcp packet with given offset

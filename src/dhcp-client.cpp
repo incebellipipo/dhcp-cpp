@@ -45,16 +45,12 @@ DHCPClient::DHCPClient(char *interface_name) {
 
 void DHCPClient::initialize() {
 
-  listen_raw_sock_fd_ = socket(PF_PACKET, SOCK_DGRAM, htons(ETH_P_ALL));
+  listen_raw_sock_fd_ = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
 
   if(listen_raw_sock_fd_ < 0){
     perror("Error socket(): ");
     exit(EXIT_FAILURE);
   }
-
-
-  std::srand((u_int32_t)std::time(nullptr));
-  packet_xid_ = (u_int32_t) random();
 
 
   struct timeval timeout = {};
@@ -63,11 +59,15 @@ void DHCPClient::initialize() {
 
   setsockopt(listen_raw_sock_fd_, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
 
-
+/*
   struct ifreq ifr = {};
   memset((void*)&ifr, 0, sizeof(struct ifreq));
   strncpy(ifr.ifr_name, ifname_, IFNAMSIZ);
   setsockopt(listen_raw_sock_fd_, SOL_SOCKET, SO_BINDTODEVICE, (void*)&ifr, sizeof(ifr));
+*/
+  std::srand((u_int32_t)std::time(nullptr));
+  packet_xid_ = (u_int32_t) random();
+
 
 }
 
@@ -175,19 +175,12 @@ void DHCPClient::get_dhcp_offer() {
   bzero(offer_packet, sizeof(struct dhcp_packet));
 
   for(int count = 0;
-          count <= sizeof(dhcp_packet) + sizeof(ethhdr) + sizeof(iphdr) + sizeof(udphdr) ; ){
+          count <= sizeof(ethhdr) + sizeof(iphdr) + sizeof(udphdr) ; ){
     ioctl(listen_raw_sock_fd_, FIONREAD, &count);
     usleep(1000);
   }
-  for(bool valid = false; not valid ;) {
 
-    auto result = receive_dhcp_packet(listen_raw_sock_fd_, offer_packet, sizeof(struct dhcp_packet), DHCP_OFFER_TIMEOUT);
-    if(result < 0){
-      continue;
-    }
-
-    valid = validate_packet(offer_packet);
-  }
+  auto result = receive_dhcp_packet(listen_raw_sock_fd_, offer_packet, sizeof(struct dhcp_packet), DHCP_OFFER_TIMEOUT);
 
   /* check packet xid to see if its the same as the one we used in the discover packet */
   if(ntohl(offer_packet->xid)!=packet_xid_){
