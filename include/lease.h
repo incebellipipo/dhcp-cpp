@@ -23,6 +23,7 @@ typedef struct lease {
   time_t rebind;
   time_t expire; // not used yet
 
+  bool valid = false;
 } lease;
 
 struct lease process_lease(struct dhcp_packet* packet);

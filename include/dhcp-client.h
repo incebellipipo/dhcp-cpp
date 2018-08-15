@@ -49,8 +49,6 @@ private:
 
   dhcp_packet acknowledge_;
 
-  struct in_addr selected_server_;
-
   struct dhcp_packet dhcp_packet_with_headers_set();
 
 public:
@@ -77,6 +75,7 @@ public:
 
   void cleanup();
 
+  static struct lease gather_lease(char* interface_name);
 };
 
 #endif //DHCPCLIENT_DHCPC_H

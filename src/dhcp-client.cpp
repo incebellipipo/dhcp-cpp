@@ -24,6 +24,7 @@
 #include <linux/if_ether.h>
 #include <netinet/ip.h>
 #include <netinet/udp.h>
+#include <lease.h>
 
 DHCPClient::DHCPClient(char *interface_name) {
   strncpy(ifname_, interface_name, IFNAMSIZ);
@@ -292,4 +293,53 @@ int DHCPClient::do_request(struct in_addr server, struct in_addr requested) {
 int DHCPClient::listen_acknowledgement(struct in_addr server) {
   receive_dhcp_packet(listen_raw_sock_fd_, &acknowledge_, sizeof(dhcp_packet), DHCP_OFFER_TIMEOUT);
   return 0;
+}
+
+
+struct lease DHCPClient::gather_lease(char *interface_name) {
+  DHCPClient dhcpClient(interface_name);
+
+  dhcpClient.initialize();
+
+  dhcpClient.do_discover();
+
+  dhcpClient.listen_offer();
+
+  struct lease l;
+  l.valid = false;
+
+  for(auto offer : dhcpClient.get_offers()){
+
+    bool acknowledged = false;
+    struct in_addr server_ip = {};
+    for(auto option : parse_dhcp_packet(&offer)){
+      if(option.type == DHO_DHCP_SERVER_IDENTIFIER ){
+        memcpy((void*)&server_ip, option.data, option.length);
+      }
+    }
+
+    dhcpClient.do_request(server_ip, offer.yiaddr);
+
+    dhcpClient.listen_acknowledgement(server_ip);
+
+    auto ack_packet = dhcpClient.get_acknowledge();
+    for(auto option : parse_dhcp_packet(&ack_packet)){
+      if(option.type == DHO_DHCP_MESSAGE_TYPE){
+        if(*option.data == DHCPACK){
+          l = process_lease(&ack_packet);
+          acknowledged = true;
+        } else if (*option.data == DHCPNAK){
+          l = process_lease(&ack_packet);
+        }
+      }
+    }
+
+    if(acknowledged){
+      break;
+    }
+  }
+
+  dhcpClient.cleanup();
+
+  return l;
 }

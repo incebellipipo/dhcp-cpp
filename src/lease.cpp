@@ -7,7 +7,7 @@ struct lease process_lease(struct dhcp_packet* packet){
 
   struct lease l = {};
   bzero(&l, sizeof(l));
-
+  l.valid = true;
   auto options = parse_dhcp_packet(packet);
   for(auto option : options) {
     if (option.type == DHO_DOMAIN_NAME_SERVERS) {
