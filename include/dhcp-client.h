@@ -15,77 +15,81 @@
 
 //#define DEBUG_PACKET
 
+namespace dhcp {
+  typedef struct dhcp_option {
+    u_int8_t length;
+    u_int8_t type;
+    u_int8_t *data;
+  } dhcp_option;
 
+  typedef struct dhcp_result {
 
-int get_hardware_address(std::string interface_name, std::string *result);
+  } dhcp_result;
 
-typedef struct dhcp_option{
-  u_int8_t length;
-  u_int8_t type;
-  u_int8_t* data;
-} dhcp_option;
+  class DHCPClient {
+  private:
+    struct in_addr requested_address_;
+    bool request_specific_address_ = false;
 
-typedef struct dhcp_result{
+    char ifname_[IFNAMSIZ];
+    u_int8_t hwaddr_[IFHWADDRLEN];
 
-} dhcp_result;
+    int listen_raw_sock_fd_;
 
-class DHCPClient {
-private:
-  struct in_addr requested_address_;
-  bool request_specific_address_ = false;
+    u_int32_t packet_xid_;
 
-  char ifname_[IFNAMSIZ];
-  u_int8_t hwaddr_[IFHWADDRLEN];
+    dhcp_packet discovery_;
 
-  int listen_raw_sock_fd_;
+    dhcp_packet offer_;
 
-  u_int32_t packet_xid_;
+    dhcp_packet request_;
 
-  dhcp_packet discovery_;
+    dhcp_packet acknowledge_;
 
-  dhcp_packet offer_;
+    struct dhcp_packet dhcp_packet_with_headers_set();
 
-  dhcp_packet request_;
+  public:
+    DHCPClient(char *interface_name);
 
-  dhcp_packet acknowledge_;
+    void setRequestSpecificAddress(decltype(request_specific_address_) val) { request_specific_address_ = val; }
 
-  struct dhcp_packet dhcp_packet_with_headers_set();
+    auto getRequestSpecificAddress() -> decltype(request_specific_address_) { return request_specific_address_; }
 
-public:
-  DHCPClient(char* interface_name);
+    auto get_discovery() -> decltype(discovery_) { return discovery_; }
 
-  void setRequestSpecificAddress(decltype(request_specific_address_) val) {request_specific_address_ = val;}
-  auto getRequestSpecificAddress() -> decltype(request_specific_address_) { return request_specific_address_; }
+    auto get_offer() -> decltype(offer_) { return offer_; }
 
-  auto get_discovery() -> decltype(discovery_) { return discovery_; }
-  auto get_offer() -> decltype(offer_) { return offer_; }
-  auto get_request() -> decltype(request_) { return request_; }
-  auto get_acknowledge() -> decltype(acknowledge_) { return acknowledge_; }
+    auto get_request() -> decltype(request_) { return request_; }
 
+    auto get_acknowledge() -> decltype(acknowledge_) { return acknowledge_; }
 
-  int do_discover();
+    int do_discover();
 
-  void listen_offer();
+    void listen_offer();
 
-  int do_request(struct in_addr server, struct in_addr requested);
+    int do_request(struct in_addr server, struct in_addr requested);
 
-  int listen_acknowledgement(struct in_addr server);
+    int listen_acknowledgement(struct in_addr server);
 
-  void initialize();
+    void initialize();
 
-  void cleanup();
+    void cleanup();
 
-  static bool gather_lease(char *interface_name, struct lease *ls);
-};
+    static bool gather_lease(char *interface_name, struct lease *ls);
+  };
 
-class DHCPException : public std::exception {
-protected:
-  std::runtime_error msg_;
-public:
-  explicit DHCPException(const char *message) : msg_(message) {}
-  explicit DHCPException(const std::string& message): msg_(message){}
-  ~DHCPException() final = default;
-  const char* what() const noexcept final {return msg_.what(); }
-};
+  class DHCPException : public std::exception {
+  protected:
+    std::runtime_error msg_;
+  public:
+    explicit DHCPException(const char *message) : msg_(message) {}
 
+    explicit DHCPException(const std::string &message) : msg_(message) {}
+
+    ~DHCPException() final = default;
+
+    const char *what() const noexcept final { return msg_.what(); }
+  };
+
+}
 #endif //DHCPCLIENT_DHCPC_H

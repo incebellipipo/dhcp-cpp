@@ -12,16 +12,18 @@
 #include <netinet/ip.h>
 #include <netinet/udp.h>
 
+
+namespace dhcp {
 /**
- * @brief UDP Pse
+ * @brief UDP Pseudoheader
  */
-typedef struct udp_pseudoheader{
-  uint32_t srcaddr;
-  uint32_t dstaddr;
-  uint8_t zero;
-  uint8_t protocol;
-  uint16_t length;
-} udp_pseudoheader;
+  typedef struct udp_pseudoheader {
+    uint32_t srcaddr;
+    uint32_t dstaddr;
+    uint8_t zero;
+    uint8_t protocol;
+    uint16_t length;
+  } udp_pseudoheader;
 
 
 /**
@@ -29,7 +31,7 @@ typedef struct udp_pseudoheader{
  * @param data Data to be printed
  * @param len lenght of the data
  */
-void print_packet(const u_int8_t *data, int len);
+  void print_packet(const u_int8_t *data, int len);
 
 /**
  * @brief Sends packets with specified values over socket
@@ -39,8 +41,8 @@ void print_packet(const u_int8_t *data, int len);
  * @param address information in sockaddr_in struct
  * @return Success value: -1 if fails 0 if succeed
  */
-int
-send_dhcp_packet(void *buffer, int buffer_size, char *ifname);
+  int
+  send_dhcp_packet(void *buffer, int buffer_size, char *ifname);
 
 /**
  * @brief Receives packet with specified values
@@ -51,7 +53,7 @@ send_dhcp_packet(void *buffer, int buffer_size, char *ifname);
  * \param address address to be received
  * @return Success value: -1 if fails 0 if succeed
  */
-bool receive_dhcp_packet(int sock, void *packet, int packet_size, int timeout);
+  bool receive_dhcp_packet(int sock, void *packet, int packet_size, int timeout);
 
 /**
  * @brief Adds option to dhcp packet with given offset
@@ -62,21 +64,21 @@ bool receive_dhcp_packet(int sock, void *packet, int packet_size, int timeout);
  * @param len
  * @return
  */
-int add_dhcp_option(struct dhcp_packet* packet, u_int8_t code, u_int8_t* data, int offset, u_int8_t len);
+  int add_dhcp_option(struct dhcp_packet *packet, u_int8_t code, u_int8_t *data, int offset, u_int8_t len);
 
 /**
  * @brief Specialized add dhcp option function that puts end flag to end of the options
  * @param packet
  * @param offset
  */
-void end_dhcp_option(struct dhcp_packet* packet, int offset);
+  void end_dhcp_option(struct dhcp_packet *packet, int offset);
 
 /**
  * @brief Checks if packet is invalid or not
  * @param packet
  * @return true if valid, else false
  */
-bool validate_dhcp_packet(u_int8_t *packet, int size);
+  bool validate_dhcp_packet(u_int8_t *packet, int size);
 
 
 /**
@@ -86,22 +88,22 @@ bool validate_dhcp_packet(u_int8_t *packet, int size);
  * @param sum pre-given sum, generally 0
  * @return sum of the buffer
  */
-u_int32_t calculate_checksum(const u_int8_t *buf, int len, u_int32_t sum);
+  u_int32_t calculate_checksum(const u_int8_t *buf, int len, u_int32_t sum);
 
 /**
  * @brief calculates the ip header checksum
  * @param ip_header
  * @return checksum of ip header
  */
-uint32_t ip_checksum(iphdr *ip_header);
+  uint32_t ip_checksum(iphdr *ip_header);
 
-u_int32_t udp_checksum_s(char *ip, char *udp, u_int16_t length);
+  u_int32_t udp_checksum_s(char *ip, char *udp, u_int16_t length);
 
 /**
  * @brief Parses the packet and put it in the vector
  * @param packet pointer
  * @return objects
  */
-std::vector<dhcp_option> parse_dhcp_packet(struct dhcp_packet *packet);
-
+  std::vector<dhcp_option> parse_dhcp_packet(struct dhcp_packet *packet);
+}
 #endif //DHCPCLIENT_DHCP_REQUEST_H

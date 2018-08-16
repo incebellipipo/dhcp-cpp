@@ -36,8 +36,8 @@ int main(int argc, char **argv){
     exit(EXIT_FAILURE);
   }
 
-  struct lease l;
-  DHCPClient::gather_lease(argv[1], &l);
+  struct dhcp::lease l;
+  dhcp::DHCPClient::gather_lease(argv[1], &l);
 
   std::cout << "lease time:         " << l.lease_time << std::endl;
   std::cout << "message type:       " << (int)l.message_type << std::endl;
