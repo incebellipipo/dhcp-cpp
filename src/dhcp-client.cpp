@@ -33,8 +33,7 @@ DHCPClient::DHCPClient(char *interface_name) {
   strncpy(ifr.ifr_name, ifname_, IFNAMSIZ );
   int ifreq_sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
   if(ioctl(ifreq_sock, SIOCGIFHWADDR, &ifr) < 0){
-    perror("Can not gather hwaddr");
-    exit(EXIT_FAILURE);
+    throw DHCPException("Can not gather hwaddr" + std::string(strerror(errno)));
   }
   close(ifreq_sock);
 
@@ -49,10 +48,8 @@ void DHCPClient::initialize() {
   listen_raw_sock_fd_ = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
 
   if(listen_raw_sock_fd_ < 0){
-    perror("Error socket(): ");
-    exit(EXIT_FAILURE);
+    throw DHCPException("Can not create socket for DHCP: " + std::string(strerror(errno)));
   }
-
 
   struct timeval timeout = {};
   timeout.tv_sec = 3;
@@ -177,13 +174,7 @@ void DHCPClient::listen_offer() {
   memset(offer_packet, 0 , sizeof(struct dhcp_packet));
   bzero(offer_packet, sizeof(struct dhcp_packet));
 
-  for(int count = 0;
-          count <= sizeof(ethhdr) + sizeof(iphdr) + sizeof(udphdr) ; ){
-    ioctl(listen_raw_sock_fd_, FIONREAD, &count);
-    usleep(1000);
-  }
-
-  auto result = receive_dhcp_packet(listen_raw_sock_fd_, offer_packet, sizeof(struct dhcp_packet), DHCP_OFFER_TIMEOUT);
+  receive_dhcp_packet(listen_raw_sock_fd_, offer_packet, sizeof(struct dhcp_packet), DHCP_OFFER_TIMEOUT);
 
   /* check packet xid to see if its the same as the one we used in the discover packet */
   if(ntohl(offer_packet->xid)!=packet_xid_){
@@ -192,7 +183,7 @@ void DHCPClient::listen_offer() {
 
   /* check hardware address */
   if(strcmp((char*)&offer_packet->chaddr, (char*)&hwaddr_) == 0) {
-    offers_.push_back(*offer_packet);
+    offer_ = *offer_packet;
   }
 }
 
@@ -296,7 +287,7 @@ int DHCPClient::listen_acknowledgement(struct in_addr server) {
 }
 
 
-struct lease DHCPClient::gather_lease(char *interface_name) {
+bool DHCPClient::gather_lease(char *interface_name, struct lease *ls) {
   DHCPClient dhcpClient(interface_name);
 
   dhcpClient.initialize();
@@ -308,38 +299,38 @@ struct lease DHCPClient::gather_lease(char *interface_name) {
   struct lease l;
   l.valid = false;
 
-  for(auto offer : dhcpClient.get_offers()){
+  auto offer = dhcpClient.get_offer();
 
-    bool acknowledged = false;
-    struct in_addr server_ip = {};
-    for(auto option : parse_dhcp_packet(&offer)){
-      if(option.type == DHO_DHCP_SERVER_IDENTIFIER ){
-        memcpy((void*)&server_ip, option.data, option.length);
-      }
+  bool acknowledged = false;
+  struct in_addr server_ip = {};
+  for(auto option : parse_dhcp_packet(&offer)){
+    if(option.type == DHO_DHCP_SERVER_IDENTIFIER ){
+      memcpy((void*)&server_ip, option.data, option.length);
     }
+  }
 
-    dhcpClient.do_request(server_ip, offer.yiaddr);
+  dhcpClient.do_request(server_ip, offer.yiaddr);
 
-    dhcpClient.listen_acknowledgement(server_ip);
+  dhcpClient.listen_acknowledgement(server_ip);
 
-    auto ack_packet = dhcpClient.get_acknowledge();
-    for(auto option : parse_dhcp_packet(&ack_packet)){
-      if(option.type == DHO_DHCP_MESSAGE_TYPE){
-        if(*option.data == DHCPACK){
-          l = process_lease(&ack_packet);
-          acknowledged = true;
-        } else if (*option.data == DHCPNAK){
-          l = process_lease(&ack_packet);
-        }
+  auto ack_packet = dhcpClient.get_acknowledge();
+  for(auto option : parse_dhcp_packet(&ack_packet)){
+    if(option.type == DHO_DHCP_MESSAGE_TYPE){
+      if(*option.data == DHCPACK){
+        l = process_lease(&ack_packet);
+        acknowledged = true;
+      } else if (*option.data == DHCPNAK){
+        l = process_lease(&ack_packet);
       }
-    }
-
-    if(acknowledged){
-      break;
     }
   }
 
   dhcpClient.cleanup();
 
-  return l;
+  if(acknowledged){
+    *ls = l;
+    return true;
+  } else {
+    return false;
+  }
 }

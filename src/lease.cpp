@@ -37,6 +37,15 @@ struct lease process_lease(struct dhcp_packet* packet){
     }
   }
 
+  u_int32_t u_subnet;
+  memcpy(&u_subnet, &l.subnet_mask.s_addr, sizeof(u_subnet) );
+
+  u_int32_t u_route;
+  memcpy(&u_route, &l.routers.s_addr, sizeof(u_route));
+  u_int32_t broadcast_addr = u_route | (~ u_subnet);
+
+  memcpy(&l.broadcast_addr, (void*)&broadcast_addr, sizeof(in_addr));
+
   memcpy(&l.address, &packet->yiaddr, sizeof(l.address));
   if(l.renew == 0){
     l.renew = l.lease_time / 2;

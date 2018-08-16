@@ -11,8 +11,9 @@ typedef struct lease {
 
   char* ifname;
   struct in_addr address;
-
   struct in_addr subnet_mask;
+  struct in_addr broadcast_addr;
+  struct in_addr netmask_addr;
   struct in_addr routers; // todo why this is routers?
   u_int8_t message_type;
   struct in_addr server_identifier;

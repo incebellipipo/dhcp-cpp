@@ -124,8 +124,7 @@ int send_dhcp_packet(void *buffer, int buffer_size, char *ifname) {
 
   struct sockaddr_ll device = {};
   if((device.sll_ifindex = if_nametoindex(ifname)) == 0){
-    perror("Failed to resolve interface index");
-    exit(EXIT_FAILURE);
+    throw DHCPException("Failed to resolve interface index: " + std::string(strerror(errno)));
   }
 
   int sendv4_sock = socket(PF_PACKET, SOCK_RAW, htons(ETH_P_ALL));
@@ -137,11 +136,9 @@ int send_dhcp_packet(void *buffer, int buffer_size, char *ifname) {
   print_packet((u_int8_t *)buf, result);
 
   free(buf);
-	if(result<0) {
-	  perror("Send dhcp packet resulting with an error");
-    exit(EXIT_FAILURE);
+	if(result < 0) {
+	  throw DHCPException("Can not send dhcp request: " + std::string(strerror(errno)));
   }
-
 	return result;
 }
 
@@ -164,8 +161,7 @@ bool receive_dhcp_packet(int sock, void *packet, int packet_size, int timeout) {
     len = (int) recv(sock, buf, max_length, 0);
     read_count++;
     if(len < 0){
-      perror("Error recv(): ");
-      return false;
+      throw DHCPException("Can not receive DHCP packet: " + std::string(strerror(errno)));
     }
 
     memcpy(&incoming_packet,
@@ -284,7 +280,6 @@ uint32_t ip_checksum(iphdr *ip_header) {
 }
 
 bool validate_dhcp_packet(u_int8_t *packet, int size){
-
   struct iphdr ip_header = {};
   memset(&ip_header, 0, sizeof(ip_header));
   bzero(&ip_header, sizeof(ip_header));
@@ -334,8 +329,6 @@ bool validate_dhcp_packet(u_int8_t *packet, int size){
     return false;
   if (dhcp_p.options[3] != 0x63)
     return false;
-
-
 
   return true;
 }

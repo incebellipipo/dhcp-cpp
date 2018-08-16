@@ -43,7 +43,7 @@ private:
 
   dhcp_packet discovery_;
 
-  std::vector<dhcp_packet> offers_;
+  dhcp_packet offer_;
 
   dhcp_packet request_;
 
@@ -58,7 +58,7 @@ public:
   auto getRequestSpecificAddress() -> decltype(request_specific_address_) { return request_specific_address_; }
 
   auto get_discovery() -> decltype(discovery_) { return discovery_; }
-  auto get_offers() -> decltype(offers_) { return offers_; }
+  auto get_offer() -> decltype(offer_) { return offer_; }
   auto get_request() -> decltype(request_) { return request_; }
   auto get_acknowledge() -> decltype(acknowledge_) { return acknowledge_; }
 
@@ -75,7 +75,17 @@ public:
 
   void cleanup();
 
-  static struct lease gather_lease(char* interface_name);
+  static bool gather_lease(char *interface_name, struct lease *ls);
+};
+
+class DHCPException : public std::exception {
+protected:
+  std::runtime_error msg_;
+public:
+  explicit DHCPException(const char *message) : msg_(message) {}
+  explicit DHCPException(const std::string& message): msg_(message){}
+  ~DHCPException() final = default;
+  const char* what() const noexcept final {return msg_.what(); }
 };
 
 #endif //DHCPCLIENT_DHCPC_H

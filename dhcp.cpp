@@ -36,15 +36,17 @@ int main(int argc, char **argv){
     exit(EXIT_FAILURE);
   }
 
-  auto l = DHCPClient::gather_lease(argv[1]);
+  struct lease l;
+  DHCPClient::gather_lease(argv[1], &l);
 
   std::cout << "lease time:         " << l.lease_time << std::endl;
   std::cout << "message type:       " << (int)l.message_type << std::endl;
   std::cout << "address:            " << std::string(inet_ntoa(l.address)) << std::endl;
+  std::cout << "broadcast:          " << std::string(inet_ntoa(l.broadcast_addr)) << std::endl;
+  std::cout << "subnet mask:        " << std::string(inet_ntoa(l.subnet_mask)) << std::endl;
   std::cout << "rebind time:        " << l.rebind << std::endl;
   std::cout << "renew time:         " << l.renew << std::endl;
   std::cout << "expire time:        " << l.expire << std::endl;
-  std::cout << "subnet mask:        " << std::string(inet_ntoa(l.subnet_mask)) << std::endl;
   std::cout << "server identifier:  " << std::string(inet_ntoa(l.server_identifier)) << std::endl;
   std::cout << "router:             " << std::string(inet_ntoa(l.routers)) << std::endl;
   for(auto dns : l.domain_name_servers){
