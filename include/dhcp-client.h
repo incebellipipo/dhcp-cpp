@@ -32,7 +32,7 @@ namespace dhcp {
     bool request_specific_address_ = false;
 
     char ifname_[IFNAMSIZ];
-    u_int8_t hwaddr_[IFHWADDRLEN];
+    u_int8_t hwaddr_[16];
 
     int listen_raw_sock_fd_;
 

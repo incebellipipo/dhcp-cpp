@@ -37,7 +37,15 @@ int main(int argc, char **argv){
   }
 
   struct dhcp::lease l;
-  dhcp::DHCPClient::gather_lease(argv[1], &l);
+
+  for(int i = 0 ; i < 10 ; i++){
+    std::cout << "try #" << i << std::endl;
+    if(dhcp::DHCPClient::gather_lease(argv[1], &l)){
+      break;
+    } else {
+      sleep(1);
+    }
+  }
 
   std::cout << "lease time:         " << l.lease_time << std::endl;
   std::cout << "message type:       " << (int)l.message_type << std::endl;

@@ -182,10 +182,7 @@ namespace dhcp {
       return;
     }
 
-    /* check hardware address */
-    if (strcmp((char *) &offer_packet->chaddr, (char *) &hwaddr_) == 0) {
-      offer_ = *offer_packet;
-    }
+    offer_ = *offer_packet;
   }
 
 
